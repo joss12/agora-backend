@@ -1,0 +1,1879 @@
+========== BACKEND: POM.XML ==========
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.1.1</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>com.springcommerce</groupId>
+	<artifactId>backend</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name/>
+	<description/>
+	<url/>
+	<licenses>
+		<license/>
+	</licenses>
+	<developers>
+		<developer/>
+	</developers>
+	<scm>
+		<connection/>
+		<developerConnection/>
+		<tag/>
+		<url/>
+	</scm>
+	<properties>
+		<java.version>21</java.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-flyway</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-mysql</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>0.12.6</version>
+		</dependency>
+
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>0.12.6</version>
+			<scope>runtime</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>0.12.6</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-mysql</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-cache</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.cloudinary</groupId>
+			<artifactId>cloudinary-http5</artifactId>
+			<version>2.3.2</version>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-jackson</artifactId>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
+
+========== BACKEND: JAVA FILES ==========
+
+========== FILE: src/main/java/com/springcommerce/backend/config/SecurityConfig.java ==========
+package com.springcommerce.backend.config;
+
+import com.springcommerce.backend.security.JwtAuthenticationFilter;
+
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+@Configuration
+@EnableMethodSecurity
+public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtAuthenticationFilter
+    ) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http
+    ) throws Exception {
+
+        http
+                .csrf(csrf -> csrf.disable())
+
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(
+                                SessionCreationPolicy.STATELESS
+                        )
+                )
+
+                .exceptionHandling(exceptions -> exceptions
+
+                        .authenticationEntryPoint(
+                                (request, response, exception) ->
+                                        response.sendError(
+                                                HttpServletResponse.SC_UNAUTHORIZED,
+                                                "Authentication required"
+                                        )
+                        )
+
+                        .accessDeniedHandler(
+                                (request, response, exception) ->
+                                        response.sendError(
+                                                HttpServletResponse.SC_FORBIDDEN,
+                                                "Access denied"
+                                        )
+                        )
+                )
+
+                .authorizeHttpRequests(auth -> auth
+
+                        .dispatcherTypeMatchers(
+                                DispatcherType.ERROR
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/auth/login",
+                                "/api/auth/register"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/auth/me"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                "/api/account",
+                                "/api/account/**"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                "/api/admin",
+                                "/api/admin/**"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/products",
+                                "/api/products/*"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/products/*/images"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/products/*/images"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                HttpMethod.PATCH,
+                                "/api/products/*/images/*/primary"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                HttpMethod.DELETE,
+                                "/api/products/*/images/*"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/categories",
+                                "/api/categories/*"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/products"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                HttpMethod.PUT,
+                                "/api/products/*"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                HttpMethod.DELETE,
+                                "/api/products/*"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                "/api/products/*/stock/**",
+                                "/api/products/*/inventory-history"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/categories"
+                        )
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(
+                                "/api/cart",
+                                "/api/cart/**"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                "/api/orders",
+                                "/api/orders/**"
+                        )
+                        .hasAnyRole("CUSTOMER", "ADMIN")
+
+                        .anyRequest()
+                        .authenticated()
+                )
+
+                .addFilterBefore(
+                        jwtAuthenticationFilter,
+                        UsernamePasswordAuthenticationFilter.class
+                );
+
+        return http.build();
+    }
+}
+========== FILE: src/main/java/com/springcommerce/backend/controller/AccountController.java ==========
+package com.springcommerce.backend.controller;
+
+import com.springcommerce.backend.dto.UserResponse;
+import com.springcommerce.backend.dto.account.AddressRequest;
+import com.springcommerce.backend.dto.account.AddressResponse;
+import com.springcommerce.backend.dto.account.UpdateProfileRequest;
+import com.springcommerce.backend.service.AccountService;
+
+import jakarta.validation.Valid;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/account")
+public class AccountController {
+
+    private final AccountService accountService;
+
+    public AccountController(
+            AccountService accountService
+    ) {
+        this.accountService =
+                accountService;
+    }
+
+    @GetMapping("/profile")
+    public ResponseEntity<UserResponse> getProfile(
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(
+                accountService.getProfile(
+                        authentication.getName()
+                )
+        );
+    }
+
+    @PatchMapping("/profile")
+    public ResponseEntity<UserResponse> updateProfile(
+            Authentication authentication,
+            @Valid @RequestBody
+            UpdateProfileRequest request
+    ) {
+        return ResponseEntity.ok(
+                accountService.updateProfile(
+                        authentication.getName(),
+                        request
+                )
+        );
+    }
+
+    @GetMapping("/addresses")
+    public ResponseEntity<List<AddressResponse>> getAddresses(
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(
+                accountService.getAddresses(
+                        authentication.getName()
+                )
+        );
+    }
+
+    @PostMapping("/addresses")
+    public ResponseEntity<AddressResponse> createAddress(
+            Authentication authentication,
+            @Valid @RequestBody
+            AddressRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(
+                        accountService.createAddress(
+                                authentication.getName(),
+                                request
+                        )
+                );
+    }
+
+    @PatchMapping("/addresses/{addressId}")
+    public ResponseEntity<AddressResponse> updateAddress(
+            Authentication authentication,
+            @PathVariable Long addressId,
+            @Valid @RequestBody
+            AddressRequest request
+    ) {
+        return ResponseEntity.ok(
+                accountService.updateAddress(
+                        authentication.getName(),
+                        addressId,
+                        request
+                )
+        );
+    }
+
+    @PatchMapping(
+            "/addresses/{addressId}/default"
+    )
+    public ResponseEntity<AddressResponse> setDefaultAddress(
+            Authentication authentication,
+            @PathVariable Long addressId
+    ) {
+        return ResponseEntity.ok(
+                accountService.setDefaultAddress(
+                        authentication.getName(),
+                        addressId
+                )
+        );
+    }
+
+    @DeleteMapping("/addresses/{addressId}")
+    public ResponseEntity<Void> deleteAddress(
+            Authentication authentication,
+            @PathVariable Long addressId
+    ) {
+        accountService.deleteAddress(
+                authentication.getName(),
+                addressId
+        );
+
+        return ResponseEntity.noContent()
+                .build();
+    }
+}
+========== FILE: src/main/java/com/springcommerce/backend/controller/AuthController.java ==========
+package com.springcommerce.backend.controller;
+
+import com.springcommerce.backend.dto.RegisterRequest;
+import com.springcommerce.backend.dto.UserResponse;
+import com.springcommerce.backend.exception.InvalidCredentialsException;
+import com.springcommerce.backend.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import com.springcommerce.backend.dto.LoginRequest;
+import com.springcommerce.backend.dto.LoginResponse;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final UserService userService;
+
+    public AuthController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<UserResponse> register(
+            @Valid @RequestBody RegisterRequest request
+    ) {
+
+        UserResponse response =
+                userService.register(request);
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(response);
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponse> login(
+            @Valid @RequestBody LoginRequest request
+    ){
+        LoginResponse response = userService.login(request);
+
+        return ResponseEntity.ok(response);
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<String> handleInvalidCredentials(
+            InvalidCredentialsException exception
+    ){
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(exception.getMessage());
+    }
+}
+========== FILE: src/main/java/com/springcommerce/backend/controller/CurrentUserController.java ==========
+package com.springcommerce.backend.controller;
+
+
+import com.springcommerce.backend.entity.User;
+import com.springcommerce.backend.repository.UserRepository;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+@RestController
+@RequestMapping("/api/auth")
+public class CurrentUserController {
+
+    private final UserRepository userRepository;
+
+    public CurrentUserController(
+            UserRepository userRepository
+    ) {
+        this.userRepository = userRepository;
+    }
+
+    @GetMapping("/me")
+    public CurrentUserResponse me(
+            Authentication authentication
+    ) {
+        if (
+                authentication == null ||
+                        !authentication.isAuthenticated()
+        ) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        User user = userRepository
+                .findByEmail(authentication.getName())
+                .orElseThrow(
+                        () -> new ResponseStatusException(
+                                HttpStatus.UNAUTHORIZED
+                        )
+                );
+
+        if (!user.isEnabled()) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        return new CurrentUserResponse(
+                user.getId(),
+                user.getEmail(),
+                user.getFirstName(),
+                user.getRole().name()
+        );
+    }
+
+    public record CurrentUserResponse(
+            Long id,
+            String email,
+            String firstName,
+            String role
+    ) {}
+}
+========== FILE: src/main/java/com/springcommerce/backend/dto/UserResponse.java ==========
+package com.springcommerce.backend.dto;
+
+import java.time.LocalDateTime;
+
+public record UserResponse(
+        Long id,
+        String firstName,
+        String lastName,
+        String email,
+        String role,
+        boolean enabled,
+        LocalDateTime createdAt
+) {
+}
+
+========== FILE: src/main/java/com/springcommerce/backend/entity/UserAddress.java ==========
+package com.springcommerce.backend.entity;
+
+import jakarta.persistence.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "user_address")
+public class UserAddress {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(
+            fetch = FetchType.LAZY,
+            optional = false
+    )
+    @JoinColumn(
+            name = "user_id",
+            nullable = false
+    )
+    private User user;
+
+    @Column(nullable = false, length = 50)
+    private String label;
+
+    @Column(
+            name = "recipient_name",
+            nullable = false,
+            length = 200
+    )
+    private String recipientName;
+
+    @Column(
+            name = "phone_number",
+            nullable = false,
+            length = 30
+    )
+    private String phoneNumber;
+
+    @Column(
+            name = "postal_code",
+            nullable = false,
+            length = 20
+    )
+    private String postalCode;
+
+    @Column(nullable = false, length = 500)
+    private String address;
+
+    @Column(
+            name = "address_detail",
+            length = 500
+    )
+    private String addressDetail;
+
+    @Column(
+            name = "is_default",
+            nullable = false
+    )
+    private boolean defaultAddress;
+
+    @Column(
+            name = "created_at",
+            nullable = false,
+            updatable = false
+    )
+    private LocalDateTime createdAt;
+
+    @Column(
+            name = "updated_at",
+            nullable = false
+    )
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    public void prePersist() {
+        LocalDateTime now =
+                LocalDateTime.now();
+
+        createdAt = now;
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    public void preUpdate() {
+        updatedAt =
+                LocalDateTime.now();
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public User getUser() {
+        return user;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public String getRecipientName() {
+        return recipientName;
+    }
+
+    public void setRecipientName(
+            String recipientName
+    ) {
+        this.recipientName =
+                recipientName;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(
+            String phoneNumber
+    ) {
+        this.phoneNumber =
+                phoneNumber;
+    }
+
+    public String getPostalCode() {
+        return postalCode;
+    }
+
+    public void setPostalCode(
+            String postalCode
+    ) {
+        this.postalCode =
+                postalCode;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(
+            String address
+    ) {
+        this.address = address;
+    }
+
+    public String getAddressDetail() {
+        return addressDetail;
+    }
+
+    public void setAddressDetail(
+            String addressDetail
+    ) {
+        this.addressDetail =
+                addressDetail;
+    }
+
+    public boolean isDefaultAddress() {
+        return defaultAddress;
+    }
+
+    public void setDefaultAddress(
+            boolean defaultAddress
+    ) {
+        this.defaultAddress =
+                defaultAddress;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+}
+
+========== FILE: src/main/java/com/springcommerce/backend/entity/User.java ==========
+package com.springcommerce.backend.entity;
+
+
+import jakarta.persistence.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 100)
+    private String firstName;
+
+    @Column(nullable = false, length = 100)
+    private String lastName;
+
+    @Column(nullable = false, unique = true, length = 255)
+    private String email;
+
+    @Column(nullable = false)
+    private String password;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private UserRole role;
+
+    @Column(nullable = false)
+    private boolean enabled;
+
+    @Column(nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    public void prePersist(){
+        LocalDateTime now = LocalDateTime.now();
+
+        createdAt = now;
+        updatedAt = now;
+
+        if(role == null){
+            role = UserRole.CUSTOMER;
+        }
+
+        enabled = true;
+    }
+
+    @PreUpdate
+    public void preUpdated() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    public Long getId(){
+        return id;
+    }
+
+    public String getFirstName(){
+        return firstName;
+    }
+
+    public void setFirstName(String firstName){
+        this.firstName = firstName;
+    }
+
+    public String getLastName(){
+        return lastName;
+    }
+
+    public void setLastName(String lastName){
+        this.lastName = lastName;
+    }
+
+    public String getEmail(){
+        return email;
+    }
+
+    public void setEmail(String email){
+        this.email = email;
+    }
+
+    public String getPassword(){
+        return password;
+    }
+
+    public void setPassword(String password){
+        this.password = password;
+    }
+
+    public UserRole getRole(){
+        return role;
+    }
+
+    public void setRole(UserRole role){
+        this.role = role;
+    }
+
+    public boolean isEnabled(){
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled){
+        this.enabled = enabled;
+    }
+
+    public LocalDateTime getCreatedAt(){
+        return createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt(){
+        return updatedAt;
+    }
+}
+
+========== FILE: src/main/java/com/springcommerce/backend/entity/UserRole.java ==========
+package com.springcommerce.backend.entity;
+
+public enum UserRole {
+    CUSTOMER,
+    ADMIN
+}
+
+========== FILE: src/main/java/com/springcommerce/backend/exception/DuplicateEmailException.java ==========
+package com.springcommerce.backend.exception;
+
+public class DuplicateEmailException extends RuntimeException {
+    public DuplicateEmailException(String email) {
+
+        super("User with email already exists: " + email);
+    }
+}
+
+========== FILE: src/main/java/com/springcommerce/backend/repository/UserAddressRepository.java ==========
+package com.springcommerce.backend.repository;
+
+import com.springcommerce.backend.entity.UserAddress;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface UserAddressRepository
+        extends JpaRepository<UserAddress, Long> {
+
+    List<UserAddress> findAllByUserIdOrderByDefaultAddressDescCreatedAtDesc(
+            Long userId
+    );
+
+    Optional<UserAddress> findByIdAndUserId(
+            Long id,
+            Long userId
+    );
+
+    boolean existsByUserId(
+            Long userId
+    );
+
+    @Modifying
+    @Query("""
+            UPDATE UserAddress a
+            SET a.defaultAddress = false
+            WHERE a.user.id = :userId
+              AND a.defaultAddress = true
+            """)
+    int clearDefaultAddress(
+            @Param("userId") Long userId
+    );
+}
+========== FILE: src/main/java/com/springcommerce/backend/repository/UserRepository.java ==========
+package com.springcommerce.backend.repository;
+
+import com.springcommerce.backend.dto.admin.AdminCustomerResponse;
+import com.springcommerce.backend.entity.PaymentStatus;
+import com.springcommerce.backend.entity.User;
+import com.springcommerce.backend.entity.UserRole;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
+
+public interface UserRepository
+        extends JpaRepository<User, Long> {
+
+    boolean existsByEmail(String email);
+
+    Optional<User> findByEmail(String email);
+
+    Optional<User> findByIdAndRole(
+            Long id,
+            UserRole role
+    );
+
+    @Query(
+            value = """
+                    SELECT new com.springcommerce.backend.dto.admin.AdminCustomerResponse(
+                        u.id,
+                        u.firstName,
+                        u.lastName,
+                        u.email,
+                        u.enabled,
+                        COUNT(DISTINCT o.id),
+                        COUNT(DISTINCT CASE
+                            WHEN p.status = :paidStatus
+                            THEN o.id
+                        END),
+                        COALESCE(
+                            SUM(
+                                CASE
+                                    WHEN p.status = :paidStatus
+                                    THEN p.amount
+                                    ELSE 0
+                                END
+                            ),
+                            0
+                        ),
+                        MAX(o.createdAt),
+                        u.createdAt
+                    )
+                    FROM User u
+                    LEFT JOIN Order o
+                        ON o.user = u
+                    LEFT JOIN Payment p
+                        ON p.order = o
+                    WHERE u.role = :role
+                    GROUP BY
+                        u.id,
+                        u.firstName,
+                        u.lastName,
+                        u.email,
+                        u.enabled,
+                        u.createdAt
+                    ORDER BY u.createdAt DESC
+                    """,
+            countQuery = """
+                    SELECT COUNT(u)
+                    FROM User u
+                    WHERE u.role = :role
+                    """
+    )
+    Page<AdminCustomerResponse> findCustomerSummaries(
+            @Param("role") UserRole role,
+            @Param("paidStatus") PaymentStatus paidStatus,
+            Pageable pageable
+    );
+}
+========== FILE: src/main/java/com/springcommerce/backend/security/CustomUserDetailsService.java ==========
+package com.springcommerce.backend.security;
+
+import com.springcommerce.backend.entity.User;
+import com.springcommerce.backend.repository.UserRepository;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+@Service
+public class CustomUserDetailsService implements UserDetailsService {
+
+    private final UserRepository userRepository;
+
+    public CustomUserDetailsService(UserRepository userRepository){
+        this.userRepository = userRepository;
+    }
+
+    @Override
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        User user = userRepository
+                .findByEmail(email)
+                .orElseThrow(()->
+                        new UsernameNotFoundException("User not found")
+                        );
+
+        return org.springframework.security.core.userdetails.User
+                .withUsername(user.getEmail())
+                .password(user.getPassword())
+                .roles(user.getRole().name())
+                .disabled(!user.isEnabled())
+                .build();
+    }
+
+}
+
+========== FILE: src/main/java/com/springcommerce/backend/security/JwtAuthenticationFilter.java ==========
+package com.springcommerce.backend.security;
+
+import com.springcommerce.backend.service.JwtService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+@Component
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+    private final CustomUserDetailsService userDetailsService;
+
+    public JwtAuthenticationFilter(
+            JwtService jwtService,
+            CustomUserDetailsService userDetailsService
+    ) {
+        this.jwtService = jwtService;
+        this.userDetailsService = userDetailsService;
+    }
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain
+    ) throws ServletException, IOException {
+
+        String authorizationHeader =
+                request.getHeader("Authorization");
+
+        if (authorizationHeader == null ||
+                !authorizationHeader.startsWith("Bearer ")) {
+
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String token =
+                authorizationHeader.substring(7);
+
+        if (!jwtService.isTokenValid(token)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String email =
+                jwtService.extractEmail(token);
+
+        if (SecurityContextHolder
+                .getContext()
+                .getAuthentication() == null) {
+
+            UserDetails userDetails =
+                    userDetailsService
+                            .loadUserByUsername(email);
+
+            UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(
+                            userDetails,
+                            null,
+                            userDetails.getAuthorities()
+                    );
+
+            SecurityContextHolder
+                    .getContext()
+                    .setAuthentication(authentication);
+        }
+
+        filterChain.doFilter(request, response);
+    }
+}
+
+========== FILE: src/main/java/com/springcommerce/backend/service/AccountService.java ==========
+package com.springcommerce.backend.service;
+
+import com.springcommerce.backend.dto.UserResponse;
+import com.springcommerce.backend.dto.account.AddressRequest;
+import com.springcommerce.backend.dto.account.AddressResponse;
+import com.springcommerce.backend.dto.account.UpdateProfileRequest;
+import com.springcommerce.backend.entity.User;
+import com.springcommerce.backend.entity.UserAddress;
+import com.springcommerce.backend.exception.DuplicateEmailException;
+import com.springcommerce.backend.repository.UserAddressRepository;
+import com.springcommerce.backend.repository.UserRepository;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
+import java.util.Locale;
+
+@Service
+public class AccountService {
+
+    private final UserRepository userRepository;
+    private final UserAddressRepository addressRepository;
+
+    public AccountService(
+            UserRepository userRepository,
+            UserAddressRepository addressRepository
+    ) {
+        this.userRepository =
+                userRepository;
+
+        this.addressRepository =
+                addressRepository;
+    }
+
+    @Transactional(readOnly = true)
+    public UserResponse getProfile(
+            String email
+    ) {
+        return mapUser(
+                getUser(email)
+        );
+    }
+
+    @Transactional
+    public UserResponse updateProfile(
+            String currentEmail,
+            UpdateProfileRequest request
+    ) {
+        User user =
+                getUser(currentEmail);
+
+        String email = request
+                .email()
+                .trim()
+                .toLowerCase(Locale.ROOT);
+
+        if (
+                !email.equals(user.getEmail()) &&
+                        userRepository.existsByEmail(email)
+        ) {
+            throw new DuplicateEmailException(
+                    email
+            );
+        }
+
+        user.setFirstName(
+                request.firstName().trim()
+        );
+
+        user.setLastName(
+                request.lastName().trim()
+        );
+
+        user.setEmail(email);
+
+        User saved =
+                userRepository.save(user);
+
+        return mapUser(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AddressResponse> getAddresses(
+            String email
+    ) {
+        User user =
+                getUser(email);
+
+        return addressRepository
+                .findAllByUserIdOrderByDefaultAddressDescCreatedAtDesc(
+                        user.getId()
+                )
+                .stream()
+                .map(this::mapAddress)
+                .toList();
+    }
+
+    @Transactional
+    public AddressResponse createAddress(
+            String email,
+            AddressRequest request
+    ) {
+        User user =
+                getUser(email);
+
+        boolean hasAddresses =
+                addressRepository.existsByUserId(
+                        user.getId()
+                );
+
+        boolean makeDefault =
+                request.defaultAddress() ||
+                        !hasAddresses;
+
+        if (makeDefault) {
+            addressRepository
+                    .clearDefaultAddress(
+                            user.getId()
+                    );
+        }
+
+        UserAddress address =
+                new UserAddress();
+
+        address.setUser(user);
+
+        applyAddress(
+                address,
+                request
+        );
+
+        address.setDefaultAddress(
+                makeDefault
+        );
+
+        return mapAddress(
+                addressRepository.save(
+                        address
+                )
+        );
+    }
+
+    @Transactional
+    public AddressResponse updateAddress(
+            String email,
+            Long addressId,
+            AddressRequest request
+    ) {
+        User user =
+                getUser(email);
+
+        UserAddress address =
+                getAddress(
+                        addressId,
+                        user.getId()
+                );
+
+        if (request.defaultAddress()) {
+            addressRepository
+                    .clearDefaultAddress(
+                            user.getId()
+                    );
+        }
+
+        applyAddress(
+                address,
+                request
+        );
+
+        if (request.defaultAddress()) {
+            address.setDefaultAddress(true);
+        }
+
+        return mapAddress(
+                addressRepository.save(
+                        address
+                )
+        );
+    }
+
+    @Transactional
+    public AddressResponse setDefaultAddress(
+            String email,
+            Long addressId
+    ) {
+        User user =
+                getUser(email);
+
+        UserAddress address =
+                getAddress(
+                        addressId,
+                        user.getId()
+                );
+
+        addressRepository
+                .clearDefaultAddress(
+                        user.getId()
+                );
+
+        address.setDefaultAddress(true);
+
+        return mapAddress(
+                addressRepository.save(
+                        address
+                )
+        );
+    }
+
+    @Transactional
+    public void deleteAddress(
+            String email,
+            Long addressId
+    ) {
+        User user =
+                getUser(email);
+
+        UserAddress address =
+                getAddress(
+                        addressId,
+                        user.getId()
+                );
+
+        boolean wasDefault =
+                address.isDefaultAddress();
+
+        addressRepository.delete(address);
+        addressRepository.flush();
+
+        if (!wasDefault) {
+            return;
+        }
+
+        List<UserAddress> remaining =
+                addressRepository
+                        .findAllByUserIdOrderByDefaultAddressDescCreatedAtDesc(
+                                user.getId()
+                        );
+
+        if (!remaining.isEmpty()) {
+            UserAddress replacement =
+                    remaining.get(0);
+
+            replacement.setDefaultAddress(
+                    true
+            );
+
+            addressRepository.save(
+                    replacement
+            );
+        }
+    }
+
+    private User getUser(
+            String email
+    ) {
+        User user =
+                userRepository
+                        .findByEmail(email)
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.UNAUTHORIZED
+                                        )
+                        );
+
+        if (!user.isEnabled()) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        return user;
+    }
+
+    private UserAddress getAddress(
+            Long addressId,
+            Long userId
+    ) {
+        return addressRepository
+                .findByIdAndUserId(
+                        addressId,
+                        userId
+                )
+                .orElseThrow(
+                        () ->
+                                new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND,
+                                        "Address not found"
+                                )
+                );
+    }
+
+    private void applyAddress(
+            UserAddress address,
+            AddressRequest request
+    ) {
+        address.setLabel(
+                request.label().trim()
+        );
+
+        address.setRecipientName(
+                request.recipientName().trim()
+        );
+
+        address.setPhoneNumber(
+                request.phoneNumber().trim()
+        );
+
+        address.setPostalCode(
+                request.postalCode().trim()
+        );
+
+        address.setAddress(
+                request.address().trim()
+        );
+
+        String detail =
+                request.addressDetail();
+
+        address.setAddressDetail(
+                detail == null ||
+                        detail.isBlank()
+                        ? null
+                        : detail.trim()
+        );
+    }
+
+    private UserResponse mapUser(
+            User user
+    ) {
+        return new UserResponse(
+                user.getId(),
+                user.getFirstName(),
+                user.getLastName(),
+                user.getEmail(),
+                user.getRole().name(),
+                user.isEnabled(),
+                user.getCreatedAt()
+        );
+    }
+
+    private AddressResponse mapAddress(
+            UserAddress address
+    ) {
+        return new AddressResponse(
+                address.getId(),
+                address.getLabel(),
+                address.getRecipientName(),
+                address.getPhoneNumber(),
+                address.getPostalCode(),
+                address.getAddress(),
+                address.getAddressDetail(),
+                address.isDefaultAddress(),
+                address.getCreatedAt(),
+                address.getUpdatedAt()
+        );
+    }
+}
+========== FILE: src/main/java/com/springcommerce/backend/service/JwtService.java ==========
+package com.springcommerce.backend.service;
+
+import com.springcommerce.backend.entity.User;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
+
+@Service
+public class JwtService {
+
+    private final SecretKey secretKey;
+    private final long expiration;
+
+    public JwtService(
+            @Value("${jwt.secret}") String secret,
+            @Value("${jwt.expiration}") long expiration
+    ) {
+        this.secretKey = Keys.hmacShaKeyFor(
+                secret.getBytes(StandardCharsets.UTF_8)
+        );
+
+        this.expiration = expiration;
+    }
+
+    public String generateToken(User user) {
+
+        Date now = new Date();
+        Date expirationDate =
+                new Date(now.getTime() + expiration);
+
+        return Jwts.builder()
+                .subject(user.getEmail())
+                .claim("userId", user.getId())
+                .claim("role", user.getRole().name())
+                .issuedAt(now)
+                .expiration(expirationDate)
+                .signWith(secretKey)
+                .compact();
+    }
+
+    public String extractEmail(String token) {
+        return extractClaims(token).getSubject();
+    }
+
+    public boolean isTokenValid(String token) {
+
+        try {
+            Claims claims = extractClaims(token);
+
+            return claims.getExpiration()
+                    .after(new Date());
+
+        } catch (Exception exception) {
+            return false;
+        }
+    }
+
+    private Claims extractClaims(String token) {
+
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+    public long getExpirationSeconds() {
+        return expiration / 1000;
+    }
+}
+========== FILE: src/main/java/com/springcommerce/backend/service/UserService.java ==========
+
+package com.springcommerce.backend.service;
+
+import com.springcommerce.backend.dto.LoginRequest;
+import com.springcommerce.backend.dto.LoginResponse;
+import com.springcommerce.backend.dto.RegisterRequest;
+import com.springcommerce.backend.dto.UserResponse;
+
+import com.springcommerce.backend.entity.User;
+import com.springcommerce.backend.entity.UserRole;
+
+import com.springcommerce.backend.exception.DuplicateEmailException;
+import com.springcommerce.backend.exception.InvalidCredentialsException;
+
+import com.springcommerce.backend.repository.UserRepository;
+
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Locale;
+
+@Service
+public class UserService {
+
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+
+    public UserService(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService
+    ) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+    }
+
+
+
+    @Transactional
+    public UserResponse register(RegisterRequest request) {
+
+        String email = request.email()
+                .trim()
+                .toLowerCase(Locale.ROOT);
+
+        if (userRepository.existsByEmail(email)) {
+            throw new DuplicateEmailException(email);
+        }
+
+        User user = new User();
+
+        user.setFirstName(request.firstName().trim());
+        user.setLastName(request.lastName().trim());
+        user.setEmail(email);
+
+        // Never store a plaintext password.
+        user.setPassword(
+                passwordEncoder.encode(request.password())
+        );
+
+        // Public registration cannot create administrator accounts.
+        user.setRole(UserRole.CUSTOMER);
+        user.setEnabled(true);
+
+        User savedUser = userRepository.save(user);
+
+        return mapToResponse(savedUser);
+    }
+
+
+
+    @Transactional(readOnly = true)
+    public LoginResponse login(LoginRequest request) {
+
+        String email = request.email()
+                .trim()
+                .toLowerCase(Locale.ROOT);
+
+        User user = userRepository
+                .findByEmail(email)
+                .orElseThrow(
+                        InvalidCredentialsException::new
+                );
+
+        // Use the same error for unknown emails and wrong passwords.
+        if (!passwordEncoder.matches(
+                request.password(),
+                user.getPassword()
+        )) {
+            throw new InvalidCredentialsException();
+        }
+
+        // Disabled accounts must not receive new access tokens.
+        if (!user.isEnabled()) {
+            throw new InvalidCredentialsException();
+        }
+
+        String accessToken = jwtService.generateToken(user);
+
+        return new LoginResponse(
+                accessToken,
+                "Bearer",
+                jwtService.getExpirationSeconds(),
+                user.getId(),
+                user.getEmail(),
+                user.getFirstName(),
+                user.getRole().name()
+        );
+    }
+
+
+
+    private UserResponse mapToResponse(User user) {
+
+        return new UserResponse(
+                user.getId(),
+                user.getFirstName(),
+                user.getLastName(),
+                user.getEmail(),
+                user.getRole().name(),
+                user.isEnabled(),
+                user.getCreatedAt()
+        );
+    }
+}
+
+========== BACKEND: CONFIG FILES ==========
+
+========== FILE: src/main/resources/application.yml ==========
+logging:
+  level:
+    org.springframework.security: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: WARN
+========== FILE: src/main/resources/application.properties ==========
+
+spring.application.name=backend
+
+# Database
+spring.datasource.url=${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/bahla}
+spring.datasource.username=${SPRING_DATASOURCE_USERNAME}
+spring.datasource.password=${SPRING_DATASOURCE_PASSWORD}
+
+# JPA
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=true
+spring.jpa.open-in-view=false
+
+# Flyway
+spring.flyway.enabled=true
+spring.flyway.baseline-on-migrate=true
+
+# JWT
+jwt.secret=${JWT_SECRET}
+jwt.expiration=${JWT_EXPIRATION:3600000}
+
+# Redis
+spring.data.redis.host=${SPRING_DATA_REDIS_HOST:localhost}
+spring.data.redis.port=${SPRING_DATA_REDIS_PORT:6379}
+
+# Cloudinary
+cloudinary.cloud-name=${CLOUDINARY_CLOUD_NAME}
+cloudinary.api-key=${CLOUDINARY_API_KEY}
+cloudinary.api-secret=${CLOUDINARY_API_SECRET}
+
+# Product image upload limits
+spring.servlet.multipart.max-file-size=5MB
+spring.servlet.multipart.max-request-size=25MB
+
+
+logging.level.org.springframework.security=DEBUG
+logging.level.org.springframework.web=DEBUG
+logging.level.org.hibernate.engine.jdbc.spi.SqlExceptionHelper=WARN
+
+
+========== FILE: compose.yaml ==========
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+
+    environment:
+      MYSQL_DATABASE: bahla
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+
+    ports:
+      - "127.0.0.1:3307:3306"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - MYSQL_PWD="$$MYSQL_PASSWORD" mysqladmin ping -h 127.0.0.1 -u "$$MYSQL_USER"
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:6379:6379"
+
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: .
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}
+
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION}
+
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST}
+      SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT}
+
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  redis_data:
+

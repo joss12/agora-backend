@@ -1,0 +1,8 @@
+.git
+.idea
+target
+.env
+.env.*
+!.env.example
+*.log
+README.md

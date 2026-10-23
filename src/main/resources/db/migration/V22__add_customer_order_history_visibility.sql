@@ -1,0 +1,2 @@
+ALTER TABLE orders
+    ADD COLUMN hidden_by_customer BOOLEAN NOT NULL DEFAULT FALSE;

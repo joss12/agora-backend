@@ -45,6 +45,10 @@ public class PaymentService {
         this.environment = environment;
     }
 
+    // ============================================================
+    // GET PAYMENT
+    // ============================================================
+
     @Transactional(readOnly = true)
     public PaymentResponse getPayment(
             String email,
@@ -67,22 +71,23 @@ public class PaymentService {
         return mapToResponse(payment);
     }
 
+    // ============================================================
+    // SIMULATE PAYMENT
+    // ============================================================
+
     @Transactional
     public PaymentResponse simulate(
             String email,
             Long orderId,
             PaymentOutcome outcome
     ) {
-        // ========================================================
-        // Security — simulated payments are development-only
-        // ========================================================
 
         validateSimulationEnvironment();
 
         User user = findUser(email);
 
-        // Payment, cancellation and admin fulfillment
-        // all acquire this order lock first.
+        // Lock the order to prevent concurrent payment,
+        // cancellation, or fulfillment changes.
         Order order = orderRepository
                 .findByIdAndUserIdForUpdate(
                         orderId,
@@ -104,7 +109,7 @@ public class PaymentService {
                         () -> new PaymentNotFoundException(orderId)
                 );
 
-        // Prevent simulated payments from bypassing Toss Payments.
+        // Never bypass an existing Toss payment.
         if (payment.getTossOrderId() != null) {
             throw new PaymentConflictException(
                     "This order uses Toss Payments. Complete payment through Toss."
@@ -123,10 +128,10 @@ public class PaymentService {
             );
         }
 
-        String reference =
-                "SIM-" + UUID.randomUUID();
+        String reference = "SIM-" + UUID.randomUUID();
 
         PaymentAttempt attempt = new PaymentAttempt();
+
         attempt.setPayment(payment);
         attempt.setOutcome(outcome);
         attempt.setTransactionReference(reference);
@@ -134,16 +139,24 @@ public class PaymentService {
         attemptRepository.save(attempt);
 
         if (outcome == PaymentOutcome.SUCCESS) {
+
             payment.setStatus(PaymentStatus.PAID);
             payment.setTransactionReference(reference);
+
         } else {
+
             payment.setStatus(PaymentStatus.FAILED);
+
         }
 
         paymentRepository.save(payment);
 
         return mapToResponse(payment);
     }
+
+    // ============================================================
+    // SIMULATION ENVIRONMENT VALIDATION
+    // ============================================================
 
     private void validateSimulationEnvironment() {
 
@@ -157,15 +170,36 @@ public class PaymentService {
                 activeProfiles.contains("dev")
                         || activeProfiles.contains("test");
 
-        if (production || !developmentOrTest) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Simulated payments are disabled in this environment."
-            );
+        boolean simulationEnabled =
+                environment.getProperty(
+                        "app.payment.simulation-enabled",
+                        Boolean.class,
+                        false
+                );
+
+        // Development and test environments
+        // can simulate payments automatically.
+        if (!production && developmentOrTest) {
+            return;
         }
+
+        // Production requires explicit opt-in.
+        if (production && simulationEnabled) {
+            return;
+        }
+
+        throw new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "Simulated payments are disabled in this environment."
+        );
     }
 
+    // ============================================================
+    // FIND USER
+    // ============================================================
+
     private User findUser(String email) {
+
         return userRepository
                 .findByEmail(email)
                 .orElseThrow(
@@ -175,9 +209,14 @@ public class PaymentService {
                 );
     }
 
+    // ============================================================
+    // MAP PAYMENT RESPONSE
+    // ============================================================
+
     private PaymentResponse mapToResponse(
             Payment payment
     ) {
+
         List<PaymentAttemptResponse> attempts =
                 attemptRepository
                         .findByPaymentIdOrderByIdAsc(

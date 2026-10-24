@@ -11,6 +11,9 @@ import com.springcommerce.backend.exception.PaymentNotFoundException;
 
 import com.springcommerce.backend.repository.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -24,6 +27,9 @@ import java.util.UUID;
 
 @Service
 public class PaymentService {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(PaymentService.class);
 
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
@@ -54,10 +60,14 @@ public class PaymentService {
             String email,
             Long orderId
     ) {
+
         User user = findUser(email);
 
         orderRepository
-                .findByIdAndUserId(orderId, user.getId())
+                .findByIdAndUserId(
+                        orderId,
+                        user.getId()
+                )
                 .orElseThrow(
                         () -> new OrderNotFoundException(orderId)
                 );
@@ -82,7 +92,15 @@ public class PaymentService {
             PaymentOutcome outcome
     ) {
 
+        // Check whether simulated payments are allowed.
         validateSimulationEnvironment();
+
+        if (outcome == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Payment outcome is required."
+            );
+        }
 
         User user = findUser(email);
 
@@ -97,6 +115,7 @@ public class PaymentService {
                         () -> new OrderNotFoundException(orderId)
                 );
 
+        // Only placed orders can be paid.
         if (order.getStatus() != OrderStatus.PLACED) {
             throw new PaymentConflictException(
                     "Payment is only allowed for placed orders"
@@ -109,12 +128,21 @@ public class PaymentService {
                         () -> new PaymentNotFoundException(orderId)
                 );
 
-        // Never bypass an existing Toss payment.
+        // ========================================================
+        // TOSS PAYMENT PROTECTION
+        // ========================================================
+
+        // Never allow a simulated payment to bypass Toss.
         if (payment.getTossOrderId() != null) {
             throw new PaymentConflictException(
-                    "This order uses Toss Payments. Complete payment through Toss."
+                    "This order uses Toss Payments. "
+                            + "Complete payment through Toss."
             );
         }
+
+        // ========================================================
+        // PAYMENT STATUS VALIDATION
+        // ========================================================
 
         if (payment.getStatus() == PaymentStatus.PAID) {
             throw new PaymentConflictException(
@@ -128,7 +156,20 @@ public class PaymentService {
             );
         }
 
-        String reference = "SIM-" + UUID.randomUUID();
+        if (payment.getStatus() != PaymentStatus.PENDING
+                && payment.getStatus() != PaymentStatus.FAILED) {
+
+            throw new PaymentConflictException(
+                    "Payment cannot be simulated in its current status"
+            );
+        }
+
+        // ========================================================
+        // CREATE SIMULATED PAYMENT ATTEMPT
+        // ========================================================
+
+        String reference =
+                "SIM-" + UUID.randomUUID();
 
         PaymentAttempt attempt = new PaymentAttempt();
 
@@ -138,15 +179,28 @@ public class PaymentService {
 
         attemptRepository.save(attempt);
 
+        // ========================================================
+        // UPDATE PAYMENT STATUS
+        // ========================================================
+
         if (outcome == PaymentOutcome.SUCCESS) {
 
             payment.setStatus(PaymentStatus.PAID);
             payment.setTransactionReference(reference);
 
+            log.info(
+                    "Simulated payment succeeded for orderId={}",
+                    orderId
+            );
+
         } else {
 
             payment.setStatus(PaymentStatus.FAILED);
 
+            log.info(
+                    "Simulated payment failed for orderId={}",
+                    orderId
+            );
         }
 
         paymentRepository.save(payment);
@@ -164,11 +218,23 @@ public class PaymentService {
                 Arrays.asList(environment.getActiveProfiles());
 
         boolean production =
-                activeProfiles.contains("prod");
+                activeProfiles.contains("prod")
+                        || activeProfiles.contains("production");
 
         boolean developmentOrTest =
                 activeProfiles.contains("dev")
                         || activeProfiles.contains("test");
+
+        // Spring Boot maps:
+        //
+        // APP_PAYMENT_SIMULATION_ENABLED
+        //
+        // to:
+        //
+        // app.payment.simulation-enabled
+        //
+        // Read the canonical property first, then check the
+        // explicit environment variable as a fallback.
 
         boolean simulationEnabled =
                 environment.getProperty(
@@ -177,14 +243,66 @@ public class PaymentService {
                         false
                 );
 
-        // Development and test environments
-        // can simulate payments automatically.
+        String explicitEnvironmentValue =
+                System.getenv(
+                        "APP_PAYMENT_SIMULATION_ENABLED"
+                );
+
+        if (explicitEnvironmentValue != null) {
+
+            simulationEnabled =
+                    Boolean.parseBoolean(
+                            explicitEnvironmentValue.trim()
+                    );
+        }
+
+        log.info(
+                "Payment simulation configuration: "
+                        + "profiles={}, production={}, enabled={}",
+                activeProfiles,
+                production,
+                simulationEnabled
+        );
+
+        // ========================================================
+        // DEVELOPMENT / TEST
+        // ========================================================
+
+        // Simulations are automatically available in
+        // development and test environments.
+
         if (!production && developmentOrTest) {
             return;
         }
 
-        // Production requires explicit opt-in.
-        if (production && simulationEnabled) {
+        // ========================================================
+        // PRODUCTION
+        // ========================================================
+
+        // Never enable simulated payments on the public
+        // production storefront.
+        //
+        // A simulated SUCCESS marks an order as PAID
+        // without a real payment transaction.
+        //
+        // Test production-like deployments in a separate,
+        // access-controlled staging environment instead.
+
+        if (production) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Simulated payments are disabled in production."
+            );
+        }
+
+        // ========================================================
+        // OTHER ENVIRONMENTS
+        // ========================================================
+
+        // Allow explicit opt-in for isolated staging environments.
+
+        if (simulationEnabled) {
             return;
         }
 

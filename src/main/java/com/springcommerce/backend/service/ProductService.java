@@ -28,8 +28,6 @@ import com.springcommerce.backend.repository.InventoryMovementRepository;
 import com.springcommerce.backend.repository.ProductImageRepository;
 import com.springcommerce.backend.repository.ProductRepository;
 
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -62,11 +60,11 @@ public class ProductService {
         this.cloudinary = cloudinary;
     }
 
+    // =========================================================
+    // CREATE PRODUCT
+    // =========================================================
+
     @Transactional
-    @CacheEvict(
-            cacheNames = "products",
-            allEntries = true
-    )
     public ProductResponse createProduct(
             CreateProductRequest request
     ) {
@@ -97,6 +95,10 @@ public class ProductService {
 
         return mapToResponse(savedProduct);
     }
+
+    // =========================================================
+    // GET ALL PRODUCTS
+    // =========================================================
 
     @Transactional(readOnly = true)
     public ProductPageResponse getAllProducts(
@@ -178,11 +180,11 @@ public class ProductService {
         );
     }
 
+    // =========================================================
+    // GET PRODUCT BY ID
+    // =========================================================
+
     @Transactional(readOnly = true)
-    @Cacheable(
-            cacheNames = "products",
-            key = "#id"
-    )
     public ProductResponse getProductById(Long id) {
 
         Product product = productRepository
@@ -194,11 +196,11 @@ public class ProductService {
         return mapToResponse(product);
     }
 
+    // =========================================================
+    // UPDATE PRODUCT
+    // =========================================================
+
     @Transactional
-    @CacheEvict(
-            cacheNames = "products",
-            allEntries = true
-    )
     public ProductResponse updateProduct(
             Long id,
             UpdateProductRequest request
@@ -237,11 +239,11 @@ public class ProductService {
         return mapToResponse(savedProduct);
     }
 
+    // =========================================================
+    // DELETE PRODUCT (SOFT DELETE)
+    // =========================================================
+
     @Transactional
-    @CacheEvict(
-            cacheNames = "products",
-            allEntries = true
-    )
     public void deleteProduct(Long id) {
 
         Product existingProduct = productRepository
@@ -255,11 +257,11 @@ public class ProductService {
         productRepository.save(existingProduct);
     }
 
+    // =========================================================
+    // ADD STOCK
+    // =========================================================
+
     @Transactional
-    @CacheEvict(
-            cacheNames = "products",
-            allEntries = true
-    )
     public ProductResponse addStock(
             Long productId,
             StockRequest request
@@ -271,6 +273,7 @@ public class ProductService {
                 );
 
         int stockBefore = product.getStock();
+
         int stockAfter =
                 stockBefore + request.quantity();
 
@@ -297,11 +300,11 @@ public class ProductService {
         return mapToResponse(savedProduct);
     }
 
+    // =========================================================
+    // REMOVE STOCK
+    // =========================================================
+
     @Transactional
-    @CacheEvict(
-            cacheNames = "products",
-            allEntries = true
-    )
     public ProductResponse removeStock(
             Long productId,
             StockRequest request
@@ -347,6 +350,10 @@ public class ProductService {
         return mapToResponse(savedProduct);
     }
 
+    // =========================================================
+    // INVENTORY HISTORY
+    // =========================================================
+
     @Transactional(readOnly = true)
     public List<InventoryMovementResponse> getInventoryHistory(
             Long productId
@@ -363,6 +370,10 @@ public class ProductService {
                 .map(this::mapMovementToResponse)
                 .toList();
     }
+
+    // =========================================================
+    // GET ARCHIVED PRODUCTS
+    // =========================================================
 
     @Transactional(readOnly = true)
     public ProductPageResponse getArchivedProducts(
@@ -401,11 +412,11 @@ public class ProductService {
         );
     }
 
+    // =========================================================
+    // RESTORE ARCHIVED PRODUCT
+    // =========================================================
+
     @Transactional
-    @CacheEvict(
-            cacheNames = "products",
-            allEntries = true
-    )
     public ProductResponse restoreProduct(Long id) {
 
         Product product = productRepository
@@ -422,6 +433,10 @@ public class ProductService {
         return mapToResponse(restored);
     }
 
+    // =========================================================
+    // MAP INVENTORY MOVEMENT TO RESPONSE
+    // =========================================================
+
     private InventoryMovementResponse mapMovementToResponse(
             InventoryMovement movement
     ) {
@@ -435,6 +450,10 @@ public class ProductService {
                 movement.getCreatedAt()
         );
     }
+
+    // =========================================================
+    // MAP PRODUCT TO RESPONSE
+    // =========================================================
 
     private ProductResponse mapToResponse(
             Product product
@@ -477,6 +496,10 @@ public class ProductService {
         );
     }
 
+    // =========================================================
+    // GET PRODUCT IMAGES
+    // =========================================================
+
     private List<ProductImageResponse> getProductImages(
             Long productId
     ) {
@@ -489,6 +512,10 @@ public class ProductService {
                 .toList();
     }
 
+    // =========================================================
+    // MAP IMAGE TO RESPONSE
+    // =========================================================
+
     private ProductImageResponse mapImageToResponse(
             ProductImage image
     ) {
@@ -499,7 +526,9 @@ public class ProductService {
                         && image.getPublicId().startsWith("seed-")
         ) {
             thumbnailUrl = image.getImageUrl();
+
         } else {
+
             thumbnailUrl = cloudinary
                     .url()
                     .secure(true)

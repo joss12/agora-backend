@@ -16,7 +16,6 @@ import com.springcommerce.backend.repository.UserRepository;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -35,19 +34,15 @@ public class DemoPaymentController {
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
-    private final boolean demoCheckoutEnabled;
 
     public DemoPaymentController(
             UserRepository userRepository,
             OrderRepository orderRepository,
-            PaymentRepository paymentRepository,
-            @Value("${app.payment.demo-checkout-enabled:false}")
-            boolean demoCheckoutEnabled
+            PaymentRepository paymentRepository
     ) {
         this.userRepository = userRepository;
         this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;
-        this.demoCheckoutEnabled = demoCheckoutEnabled;
     }
 
     public enum DemoOutcome {
@@ -75,19 +70,12 @@ public class DemoPaymentController {
     }
 
     @PostMapping
-    @Transactional
+    @Transactional(readOnly = true)
     public DemoPaymentResponse simulate(
             Authentication authentication,
             @PathVariable Long orderId,
             @Valid @RequestBody DemoPaymentRequest request
     ) {
-        if (!demoCheckoutEnabled) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Demo checkout is disabled."
-            );
-        }
-
         if (authentication == null
                 || !authentication.isAuthenticated()) {
 
@@ -112,10 +100,8 @@ public class DemoPaymentController {
                         )
                 );
 
-        // Lock the order to serialize payment attempts
-        // and prevent concurrent payment/cancellation changes.
         Order order = orderRepository
-                .findByIdAndUserIdForUpdate(
+                .findByIdAndUserId(
                         orderId,
                         user.getId()
                 )
@@ -129,16 +115,13 @@ public class DemoPaymentController {
                         () -> new PaymentNotFoundException(orderId)
                 );
 
-        // Never simulate payment for an order
-        // that has already entered fulfillment.
         if (order.getStatus() != OrderStatus.PLACED) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Only placed orders can be paid."
+                    "This order is no longer awaiting payment."
             );
         }
 
-        // A completed payment cannot be paid again.
         if (payment.getStatus() == PaymentStatus.PAID) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
@@ -153,20 +136,10 @@ public class DemoPaymentController {
             );
         }
 
-        // Do not interfere with Toss payment sessions.
         if (payment.getTossOrderId() != null) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "This order uses Toss Payments."
-            );
-        }
-
-        if (payment.getStatus() != PaymentStatus.PENDING
-                && payment.getStatus() != PaymentStatus.FAILED) {
-
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Payment cannot be simulated in its current status."
             );
         }
 
@@ -176,28 +149,21 @@ public class DemoPaymentController {
         String reference =
                 "DEMO-" + UUID.randomUUID();
 
-        if (success) {
-            payment.setStatus(PaymentStatus.PAID);
-            payment.setTransactionReference(reference);
-        } else {
-            payment.setStatus(PaymentStatus.FAILED);
-        }
-
-        paymentRepository.save(payment);
-
         return new DemoPaymentResponse(
                 order.getId(),
                 payment.getAmount(),
-                payment.getStatus().name(),
+                success
+                        ? "SIMULATED_SUCCESS"
+                        : "SIMULATED_FAILURE",
                 request.outcome().name(),
                 reference,
                 "DEMO",
                 true,
-                true,
+                false,
                 LocalDateTime.now(),
                 success
-                        ? "Demo payment completed. No money was charged."
-                        : "Demo payment failed. You can retry."
+                        ? "Simulation completed. No payment was collected."
+                        : "Simulation failed. No payment was collected."
         );
     }
 }

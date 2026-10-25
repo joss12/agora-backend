@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class PaymentSimulationSecurityTest {
@@ -23,6 +24,7 @@ class PaymentSimulationSecurityTest {
     private UserRepository userRepository;
     private OrderRepository orderRepository;
     private PaymentRepository paymentRepository;
+    private PaymentAttemptRepository paymentAttemptRepository;
 
     private DemoPaymentController controller;
 
@@ -36,11 +38,15 @@ class PaymentSimulationSecurityTest {
         userRepository = mock(UserRepository.class);
         orderRepository = mock(OrderRepository.class);
         paymentRepository = mock(PaymentRepository.class);
+        paymentAttemptRepository = mock(PaymentAttemptRepository.class);
 
+        // Enable the existing simulator only inside this unit test.
         controller = new DemoPaymentController(
                 userRepository,
                 orderRepository,
-                paymentRepository
+                paymentRepository,
+                paymentAttemptRepository,
+                true
         );
 
         // =====================================================
@@ -49,11 +55,8 @@ class PaymentSimulationSecurityTest {
 
         customer = mock(User.class);
 
-        when(customer.getId())
-                .thenReturn(1L);
-
-        when(customer.getEmail())
-                .thenReturn("test@example.com");
+        when(customer.getId()).thenReturn(1L);
+        when(customer.getEmail()).thenReturn("test@example.com");
 
         // =====================================================
         // ORDER
@@ -61,14 +64,8 @@ class PaymentSimulationSecurityTest {
 
         order = mock(Order.class);
 
-        when(order.getId())
-                .thenReturn(10L);
-
-        when(order.getUser())
-                .thenReturn(customer);
-
-        when(order.getStatus())
-                .thenReturn(OrderStatus.PLACED);
+        when(order.getId()).thenReturn(10L);
+        when(order.getStatus()).thenReturn(OrderStatus.PLACED);
 
         // =====================================================
         // PAYMENT
@@ -87,7 +84,7 @@ class PaymentSimulationSecurityTest {
         when(userRepository.findByEmail(customer.getEmail()))
                 .thenReturn(Optional.of(customer));
 
-        when(orderRepository.findByIdAndUserId(10L, 1L))
+        when(orderRepository.findByIdAndUserIdForUpdate(10L, 1L))
                 .thenReturn(Optional.of(order));
 
         when(paymentRepository.findByOrderId(10L))
@@ -115,10 +112,7 @@ class PaymentSimulationSecurityTest {
     private DemoPaymentController.DemoPaymentRequest request(
             DemoPaymentController.DemoOutcome outcome
     ) {
-
-        return new DemoPaymentController.DemoPaymentRequest(
-                outcome
-        );
+        return new DemoPaymentController.DemoPaymentRequest(outcome);
     }
 
     // =========================================================
@@ -133,9 +127,7 @@ class PaymentSimulationSecurityTest {
                 () -> controller.simulate(
                         null,
                         10L,
-                        request(
-                                DemoPaymentController.DemoOutcome.SUCCESS
-                        )
+                        request(DemoPaymentController.DemoOutcome.SUCCESS)
                 )
         );
 
@@ -147,7 +139,8 @@ class PaymentSimulationSecurityTest {
         verifyNoInteractions(
                 userRepository,
                 orderRepository,
-                paymentRepository
+                paymentRepository,
+                paymentAttemptRepository
         );
     }
 
@@ -158,7 +151,7 @@ class PaymentSimulationSecurityTest {
     @Test
     void anotherCustomerCannotSimulatePayment() {
 
-        when(orderRepository.findByIdAndUserId(10L, 1L))
+        when(orderRepository.findByIdAndUserIdForUpdate(10L, 1L))
                 .thenReturn(Optional.empty());
 
         assertThrows(
@@ -166,14 +159,14 @@ class PaymentSimulationSecurityTest {
                 () -> controller.simulate(
                         authentication(),
                         10L,
-                        request(
-                                DemoPaymentController.DemoOutcome.SUCCESS
-                        )
+                        request(DemoPaymentController.DemoOutcome.SUCCESS)
                 )
         );
 
         verify(paymentRepository, never())
                 .findByOrderId(anyLong());
+
+        verifyNoInteractions(paymentAttemptRepository);
     }
 
     // =========================================================
@@ -181,52 +174,52 @@ class PaymentSimulationSecurityTest {
     // =========================================================
 
     @Test
-    void successfulDemoDoesNotMarkPaymentAsPaid() {
+    void successfulDemoMarksPaymentAsPaid() {
 
         var response = controller.simulate(
                 authentication(),
                 10L,
-                request(
-                        DemoPaymentController.DemoOutcome.SUCCESS
-                )
+                request(DemoPaymentController.DemoOutcome.SUCCESS)
         );
 
-        assertEquals(
-                "PAID",
-                response.status()
-        );
-
-        assertEquals(
-                "SUCCESS",
-                response.outcome()
-        );
-
-        assertEquals(
-                "DEMO",
-                response.provider()
-        );
+        assertEquals("PAID", response.status());
+        assertEquals("SUCCESS", response.outcome());
+        assertEquals("DEMO", response.provider());
 
         assertTrue(response.demo());
+        assertTrue(response.persisted());
 
-        assertFalse(response.persisted());
+        assertNotNull(response.transactionReference());
 
-        assertNotNull(
-                response.transactionReference()
+        assertTrue(
+                response.transactionReference().startsWith("DEMO-")
         );
 
-        // Real payment must remain pending.
-
         assertEquals(
-                PaymentStatus.PENDING,
+                PaymentStatus.PAID,
                 payment.getStatus()
         );
 
-        assertNull(
+        assertEquals(
+                response.transactionReference(),
                 payment.getTransactionReference()
         );
 
-        verify(paymentRepository, never())
-                .save(any(Payment.class));
+        verify(paymentRepository, times(1))
+                .saveAndFlush(same(payment));
+
+        verify(paymentAttemptRepository, times(1))
+                .save(argThat(attempt ->
+                        attempt.getPayment() == payment
+                                && attempt.getOutcome() == PaymentOutcome.SUCCESS
+                                && "DEMO".equals(attempt.getProvider())
+                                && "SIMULATED_SUCCESS".equals(
+                                attempt.getProviderStatus()
+                        )
+                                && response.transactionReference().equals(
+                                attempt.getTransactionReference()
+                        )
+                ));
     }
 
     // =========================================================
@@ -234,41 +227,51 @@ class PaymentSimulationSecurityTest {
     // =========================================================
 
     @Test
-    void failedDemoDoesNotModifyPayment() {
+    void failedDemoMarksPaymentAsFailed() {
 
         var response = controller.simulate(
                 authentication(),
                 10L,
-                request(
-                        DemoPaymentController.DemoOutcome.FAILURE
-                )
+                request(DemoPaymentController.DemoOutcome.FAILURE)
         );
 
-        assertEquals(
-                "FAILED",
-                response.status()
-        );
-
-        assertEquals(
-                "FAILURE",
-                response.outcome()
-        );
+        assertEquals("FAILED", response.status());
+        assertEquals("FAILURE", response.outcome());
+        assertEquals("DEMO", response.provider());
 
         assertTrue(response.demo());
+        assertTrue(response.persisted());
 
-        assertFalse(response.persisted());
+        assertNotNull(response.transactionReference());
+
+        assertTrue(
+                response.transactionReference().startsWith("DEMO-")
+        );
 
         assertEquals(
-                PaymentStatus.PENDING,
+                PaymentStatus.FAILED,
                 payment.getStatus()
         );
 
-        assertNull(
-                payment.getTransactionReference()
-        );
+        // A failed attempt does not become a successful
+        // transaction reference on the payment.
+        assertNull(payment.getTransactionReference());
 
-        verify(paymentRepository, never())
-                .save(any(Payment.class));
+        verify(paymentRepository, times(1))
+                .saveAndFlush(same(payment));
+
+        verify(paymentAttemptRepository, times(1))
+                .save(argThat(attempt ->
+                        attempt.getPayment() == payment
+                                && attempt.getOutcome() == PaymentOutcome.FAILURE
+                                && "DEMO".equals(attempt.getProvider())
+                                && "SIMULATED_FAILURE".equals(
+                                attempt.getProviderStatus()
+                        )
+                                && response.transactionReference().equals(
+                                attempt.getTransactionReference()
+                        )
+                ));
     }
 
     // =========================================================
@@ -278,18 +281,14 @@ class PaymentSimulationSecurityTest {
     @Test
     void paidOrderCannotUseDemoPayment() {
 
-        payment.setStatus(
-                PaymentStatus.PAID
-        );
+        payment.setStatus(PaymentStatus.PAID);
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
                 () -> controller.simulate(
                         authentication(),
                         10L,
-                        request(
-                                DemoPaymentController.DemoOutcome.SUCCESS
-                        )
+                        request(DemoPaymentController.DemoOutcome.SUCCESS)
                 )
         );
 
@@ -299,7 +298,9 @@ class PaymentSimulationSecurityTest {
         );
 
         verify(paymentRepository, never())
-                .save(any(Payment.class));
+                .saveAndFlush(any(Payment.class));
+
+        verifyNoInteractions(paymentAttemptRepository);
     }
 
     // =========================================================
@@ -309,18 +310,14 @@ class PaymentSimulationSecurityTest {
     @Test
     void refundedOrderCannotUseDemoPayment() {
 
-        payment.setStatus(
-                PaymentStatus.REFUNDED
-        );
+        payment.setStatus(PaymentStatus.REFUNDED);
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
                 () -> controller.simulate(
                         authentication(),
                         10L,
-                        request(
-                                DemoPaymentController.DemoOutcome.SUCCESS
-                        )
+                        request(DemoPaymentController.DemoOutcome.SUCCESS)
                 )
         );
 
@@ -330,7 +327,9 @@ class PaymentSimulationSecurityTest {
         );
 
         verify(paymentRepository, never())
-                .save(any(Payment.class));
+                .saveAndFlush(any(Payment.class));
+
+        verifyNoInteractions(paymentAttemptRepository);
     }
 
     // =========================================================
@@ -340,18 +339,14 @@ class PaymentSimulationSecurityTest {
     @Test
     void tossPreparedOrderCannotUseDemoPayment() {
 
-        payment.setTossOrderId(
-                "TOSS-TEST-123"
-        );
+        payment.setTossOrderId("TOSS-TEST-123");
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
                 () -> controller.simulate(
                         authentication(),
                         10L,
-                        request(
-                                DemoPaymentController.DemoOutcome.SUCCESS
-                        )
+                        request(DemoPaymentController.DemoOutcome.SUCCESS)
                 )
         );
 
@@ -366,62 +361,138 @@ class PaymentSimulationSecurityTest {
         );
 
         verify(paymentRepository, never())
-                .save(any(Payment.class));
+                .saveAndFlush(any(Payment.class));
+
+        verifyNoInteractions(paymentAttemptRepository);
     }
 
     // =========================================================
-    // TEST 8: REPEATED DEMO PAYMENTS
+    // TEST 8: FAILED PAYMENT CAN BE RETRIED
     // =========================================================
 
     @Test
-    void repeatedDemoPaymentsDoNotPersistChanges() {
+    void failedDemoPaymentCanBeFollowedBySuccessfulDemo() {
 
         var failed = controller.simulate(
                 authentication(),
                 10L,
-                request(
-                        DemoPaymentController.DemoOutcome.FAILURE
-                )
+                request(DemoPaymentController.DemoOutcome.FAILURE)
+        );
+
+        assertEquals("FAILED", failed.status());
+
+        assertEquals(
+                PaymentStatus.FAILED,
+                payment.getStatus()
         );
 
         var successful = controller.simulate(
                 authentication(),
                 10L,
-                request(
-                        DemoPaymentController.DemoOutcome.SUCCESS
-                )
+                request(DemoPaymentController.DemoOutcome.SUCCESS)
         );
 
-        assertEquals(
-                "FAILED",
-                failed.status()
-        );
-
-        assertEquals(
-                "PAID",
-                successful.status()
-        );
+        assertEquals("PAID", successful.status());
 
         assertNotEquals(
                 failed.transactionReference(),
                 successful.transactionReference()
         );
 
-        assertFalse(failed.persisted());
-        assertFalse(successful.persisted());
-
-        // Real payment remains unchanged.
+        assertTrue(failed.persisted());
+        assertTrue(successful.persisted());
 
         assertEquals(
-                PaymentStatus.PENDING,
+                PaymentStatus.PAID,
                 payment.getStatus()
         );
 
-        assertNull(
+        assertEquals(
+                successful.transactionReference(),
                 payment.getTransactionReference()
         );
 
-        verify(paymentRepository, never())
-                .save(any(Payment.class));
+        verify(paymentRepository, times(2))
+                .saveAndFlush(same(payment));
+
+        verify(paymentAttemptRepository, times(2))
+                .save(any(PaymentAttempt.class));
+    }
+
+    // =========================================================
+    // TEST 9: SUCCESSFUL PAYMENT CANNOT BE REPEATED
+    // =========================================================
+
+    @Test
+    void successfulDemoPaymentCannotBeRepeated() {
+
+        controller.simulate(
+                authentication(),
+                10L,
+                request(DemoPaymentController.DemoOutcome.SUCCESS)
+        );
+
+        assertEquals(
+                PaymentStatus.PAID,
+                payment.getStatus()
+        );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.simulate(
+                        authentication(),
+                        10L,
+                        request(DemoPaymentController.DemoOutcome.SUCCESS)
+                )
+        );
+
+        assertEquals(
+                HttpStatus.CONFLICT,
+                exception.getStatusCode()
+        );
+
+        verify(paymentRepository, times(1))
+                .saveAndFlush(same(payment));
+
+        verify(paymentAttemptRepository, times(1))
+                .save(any(PaymentAttempt.class));
+    }
+
+    // =========================================================
+    // TEST 10: DEMO PAYMENTS DISABLED
+    // =========================================================
+
+    @Test
+    void demoPaymentIsRejectedWhenDisabled() {
+
+        DemoPaymentController disabledController =
+                new DemoPaymentController(
+                        userRepository,
+                        orderRepository,
+                        paymentRepository,
+                        paymentAttemptRepository,
+                        false
+                );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> disabledController.simulate(
+                        authentication(),
+                        10L,
+                        request(DemoPaymentController.DemoOutcome.SUCCESS)
+                )
+        );
+
+        assertEquals(
+                HttpStatus.FORBIDDEN,
+                exception.getStatusCode()
+        );
+
+        verifyNoInteractions(
+                userRepository,
+                orderRepository,
+                paymentRepository,
+                paymentAttemptRepository
+        );
     }
 }

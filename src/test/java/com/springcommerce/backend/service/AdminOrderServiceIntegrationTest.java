@@ -20,6 +20,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.server.ResponseStatusException;
 
 import org.testcontainers.junit.jupiter.Container;
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @Testcontainers
 @ActiveProfiles("test")
+@TestPropertySource(properties = "app.payment.demo-enabled=true")
 class AdminOrderServiceIntegrationTest {
 
     @Container
@@ -85,8 +87,13 @@ class AdminOrderServiceIntegrationTest {
     private User customer;
     private Product product;
 
+    // =========================================================
+    // SETUP
+    // =========================================================
+
     @BeforeEach
     void setUp() {
+
         shipmentRepository.deleteAll();
 
         paymentAttemptRepository.deleteAll();
@@ -122,7 +129,12 @@ class AdminOrderServiceIntegrationTest {
         product = productRepository.save(product);
     }
 
+    // =========================================================
+    // HELPERS
+    // =========================================================
+
     private CreateOrderRequest deliveryAddress() {
+
         return new CreateOrderRequest(
                 "Kim Minjun",
                 "010-1234-5678",
@@ -134,6 +146,7 @@ class AdminOrderServiceIntegrationTest {
     }
 
     private OrderResponse placeOrder() {
+
         cartService.addItem(
                 customer.getEmail(),
                 new AddCartItemRequest(
@@ -152,6 +165,7 @@ class AdminOrderServiceIntegrationTest {
             Long orderId,
             DemoPaymentController.DemoOutcome outcome
     ) {
+
         TestingAuthenticationToken authentication =
                 new TestingAuthenticationToken(
                         customer.getEmail(),
@@ -171,6 +185,7 @@ class AdminOrderServiceIntegrationTest {
     }
 
     private Payment getPayment(Long orderId) {
+
         return paymentRepository
                 .findByOrderId(orderId)
                 .orElseThrow();
@@ -180,6 +195,7 @@ class AdminOrderServiceIntegrationTest {
             Long orderId,
             OrderStatus expectedStatus
     ) {
+
         assertEquals(
                 expectedStatus,
                 orderRepository.findById(orderId)
@@ -189,6 +205,7 @@ class AdminOrderServiceIntegrationTest {
     }
 
     private void assertProductStock(int expectedStock) {
+
         assertEquals(
                 expectedStock,
                 productRepository.findById(product.getId())
@@ -197,8 +214,13 @@ class AdminOrderServiceIntegrationTest {
         );
     }
 
+    // =========================================================
+    // TEST 1: ADMIN CAN LIST ORDERS
+    // =========================================================
+
     @Test
     void adminCanListOrders() {
+
         OrderResponse order = placeOrder();
 
         Page<AdminOrderResponse> page =
@@ -218,8 +240,13 @@ class AdminOrderServiceIntegrationTest {
         assertEquals("PLACED", result.status());
     }
 
+    // =========================================================
+    // TEST 2: FILTER ORDERS BY STATUS
+    // =========================================================
+
     @Test
     void adminCanFilterOrdersByStatus() {
+
         placeOrder();
 
         Page<AdminOrderResponse> placed =
@@ -238,8 +265,13 @@ class AdminOrderServiceIntegrationTest {
         assertEquals(0, shipped.getTotalElements());
     }
 
+    // =========================================================
+    // TEST 3: VIEW ORDER DETAILS
+    // =========================================================
+
     @Test
     void adminCanViewOrderDetails() {
+
         OrderResponse order = placeOrder();
 
         AdminOrderResponse response =
@@ -257,8 +289,13 @@ class AdminOrderServiceIntegrationTest {
         assertEquals("06236", response.postalCode());
     }
 
+    // =========================================================
+    // TEST 4: UNPAID ORDER CANNOT BE PROCESSED
+    // =========================================================
+
     @Test
     void unpaidOrderCannotBeProcessed() {
+
         OrderResponse order = placeOrder();
 
         assertThrows(
@@ -277,8 +314,13 @@ class AdminOrderServiceIntegrationTest {
         assertProductStock(8);
     }
 
+    // =========================================================
+    // TEST 5: SUCCESSFUL DEMO AUTHORIZES PROCESSING
+    // =========================================================
+
     @Test
-    void successfulDemoDoesNotAuthorizeProcessing() {
+    void successfulDemoAuthorizesProcessing() {
+
         OrderResponse order = placeOrder();
 
         var demo = simulate(
@@ -288,32 +330,39 @@ class AdminOrderServiceIntegrationTest {
 
         assertEquals("PAID", demo.status());
         assertTrue(demo.demo());
-        assertFalse(demo.persisted());
+        assertTrue(demo.persisted());
 
         assertEquals(
-                PaymentStatus.PENDING,
+                PaymentStatus.PAID,
                 getPayment(order.id()).getStatus()
         );
 
-        assertThrows(
-                OrderStatusConflictException.class,
-                () -> adminOrderService.updateStatus(
+        AdminOrderResponse processed =
+                adminOrderService.updateStatus(
                         order.id(),
                         OrderStatus.PROCESSING
-                )
-        );
+                );
+
+        assertEquals("PROCESSING", processed.status());
 
         assertOrderStatus(
                 order.id(),
-                OrderStatus.PLACED
+                OrderStatus.PROCESSING
         );
 
         assertProductStock(8);
+
         assertEquals(0, shipmentRepository.count());
+        assertEquals(1, paymentAttemptRepository.count());
     }
+
+    // =========================================================
+    // TEST 6: FAILED DEMO DOES NOT AUTHORIZE PROCESSING
+    // =========================================================
 
     @Test
     void failedDemoDoesNotAuthorizeProcessing() {
+
         OrderResponse order = placeOrder();
 
         var demo = simulate(
@@ -322,6 +371,7 @@ class AdminOrderServiceIntegrationTest {
         );
 
         assertEquals("FAILED", demo.status());
+        assertTrue(demo.persisted());
 
         assertThrows(
                 OrderStatusConflictException.class,
@@ -332,35 +382,58 @@ class AdminOrderServiceIntegrationTest {
         );
 
         assertEquals(
-                PaymentStatus.PENDING,
+                PaymentStatus.FAILED,
                 getPayment(order.id()).getStatus()
         );
+
+        assertOrderStatus(
+                order.id(),
+                OrderStatus.PLACED
+        );
+
+        assertProductStock(8);
+        assertEquals(1, paymentAttemptRepository.count());
     }
 
-    @Test
-    void demoDoesNotCreateRealPaymentAttempts() {
-        OrderResponse order = placeOrder();
+    // =========================================================
+    // TEST 7: DEMO RECORDS PAYMENT ATTEMPTS
+    // =========================================================
 
-        simulate(
-                order.id(),
-                DemoPaymentController.DemoOutcome.SUCCESS
-        );
+    @Test
+    void demoRecordsPaymentAttempts() {
+
+        OrderResponse order = placeOrder();
 
         simulate(
                 order.id(),
                 DemoPaymentController.DemoOutcome.FAILURE
         );
 
-        assertEquals(0, paymentAttemptRepository.count());
+        simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.SUCCESS
+        );
+
+        assertEquals(2, paymentAttemptRepository.count());
 
         Payment payment = getPayment(order.id());
 
-        assertEquals(PaymentStatus.PENDING, payment.getStatus());
-        assertNull(payment.getTransactionReference());
+        assertEquals(
+                PaymentStatus.PAID,
+                payment.getStatus()
+        );
+
+        assertNotNull(payment.getTransactionReference());
+        assertNull(payment.getTossOrderId());
     }
+
+    // =========================================================
+    // TEST 8: ADMIN CANNOT SKIP FULFILLMENT STAGES
+    // =========================================================
 
     @Test
     void adminCannotSkipFulfillmentStages() {
+
         OrderResponse order = placeOrder();
 
         assertThrows(
@@ -387,8 +460,13 @@ class AdminOrderServiceIntegrationTest {
         assertProductStock(8);
     }
 
+    // =========================================================
+    // TEST 9: ADMIN CAN CANCEL UNPAID ORDER
+    // =========================================================
+
     @Test
     void adminCanCancelUnpaidOrder() {
+
         OrderResponse order = placeOrder();
 
         assertProductStock(8);
@@ -414,13 +492,23 @@ class AdminOrderServiceIntegrationTest {
         );
     }
 
+    // =========================================================
+    // TEST 10: ADMIN CANCELS SUCCESSFUL DEMO PAYMENT
+    // =========================================================
+
     @Test
     void adminCanCancelOrderAfterSuccessfulDemo() {
+
         OrderResponse order = placeOrder();
 
         simulate(
                 order.id(),
                 DemoPaymentController.DemoOutcome.SUCCESS
+        );
+
+        assertEquals(
+                PaymentStatus.PAID,
+                getPayment(order.id()).getStatus()
         );
 
         AdminOrderResponse cancelled =
@@ -431,18 +519,28 @@ class AdminOrderServiceIntegrationTest {
 
         assertEquals("CANCELLED", cancelled.status());
 
+        assertOrderStatus(
+                order.id(),
+                OrderStatus.CANCELLED
+        );
+
         assertProductStock(10);
 
         assertEquals(
-                PaymentStatus.PENDING,
+                PaymentStatus.REFUNDED,
                 getPayment(order.id()).getStatus()
         );
 
-        assertEquals(0, paymentAttemptRepository.count());
+        assertEquals(1, paymentAttemptRepository.count());
     }
+
+    // =========================================================
+    // TEST 11: CANCELLED ORDER CANNOT BE PROCESSED
+    // =========================================================
 
     @Test
     void adminCannotProcessCancelledOrder() {
+
         OrderResponse order = placeOrder();
 
         adminOrderService.updateStatus(
@@ -466,8 +564,13 @@ class AdminOrderServiceIntegrationTest {
         assertProductStock(10);
     }
 
+    // =========================================================
+    // TEST 12: ADMIN CANNOT CANCEL SAME ORDER TWICE
+    // =========================================================
+
     @Test
     void adminCannotCancelSameOrderTwice() {
+
         OrderResponse order = placeOrder();
 
         adminOrderService.updateStatus(
@@ -511,8 +614,13 @@ class AdminOrderServiceIntegrationTest {
         );
     }
 
+    // =========================================================
+    // TEST 13: ADMIN CANNOT CANCEL TOSS-PREPARED ORDER
+    // =========================================================
+
     @Test
     void adminCannotCancelTossPreparedOrder() {
+
         OrderResponse order = placeOrder();
 
         Payment payment = getPayment(order.id());

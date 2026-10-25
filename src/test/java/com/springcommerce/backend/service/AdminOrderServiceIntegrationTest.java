@@ -1,9 +1,9 @@
 package com.springcommerce.backend.service;
 
+import com.springcommerce.backend.controller.DemoPaymentController;
 import com.springcommerce.backend.dto.AddCartItemRequest;
 import com.springcommerce.backend.dto.AdminOrderResponse;
 import com.springcommerce.backend.dto.CreateOrderRequest;
-import com.springcommerce.backend.dto.CreateShipmentRequest;
 import com.springcommerce.backend.dto.OrderResponse;
 
 import com.springcommerce.backend.entity.*;
@@ -18,7 +18,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.web.server.ResponseStatusException;
 
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -27,7 +29,6 @@ import org.testcontainers.mysql.MySQLContainer;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.*;
-import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest
 @Testcontainers
@@ -39,10 +40,6 @@ class AdminOrderServiceIntegrationTest {
     static MySQLContainer mysql =
             new MySQLContainer("mysql:8.4");
 
-    // =========================================================
-    // SERVICES
-    // =========================================================
-
     @Autowired
     private AdminOrderService adminOrderService;
 
@@ -50,17 +47,10 @@ class AdminOrderServiceIntegrationTest {
     private OrderService orderService;
 
     @Autowired
-    private PaymentService paymentService;
-
-    @Autowired
-    private ShipmentService shipmentService;
+    private DemoPaymentController demoPaymentController;
 
     @Autowired
     private CartService cartService;
-
-    // =========================================================
-    // REPOSITORIES
-    // =========================================================
 
     @Autowired
     private UserRepository userRepository;
@@ -92,19 +82,11 @@ class AdminOrderServiceIntegrationTest {
     @Autowired
     private ShipmentRepository shipmentRepository;
 
-    // =========================================================
-    // TEST DATA
-    // =========================================================
-
     private User customer;
     private Product product;
 
     @BeforeEach
     void setUp() {
-
-        // Delete dependent records first to avoid
-        // foreign-key constraint violations.
-
         shipmentRepository.deleteAll();
 
         paymentAttemptRepository.deleteAll();
@@ -120,12 +102,7 @@ class AdminOrderServiceIntegrationTest {
         productRepository.deleteAll();
         userRepository.deleteAll();
 
-        // -----------------------------------------------------
-        // CUSTOMER
-        // -----------------------------------------------------
-
         customer = new User();
-
         customer.setFirstName("Test");
         customer.setLastName("Customer");
         customer.setEmail("admin-order-test@example.com");
@@ -135,12 +112,7 @@ class AdminOrderServiceIntegrationTest {
 
         customer = userRepository.save(customer);
 
-        // -----------------------------------------------------
-        // PRODUCT
-        // -----------------------------------------------------
-
         product = new Product();
-
         product.setName("Test Monitor");
         product.setSku("ADMIN-MONITOR-001");
         product.setPrice(new BigDecimal("150000.00"));
@@ -150,12 +122,7 @@ class AdminOrderServiceIntegrationTest {
         product = productRepository.save(product);
     }
 
-    // =========================================================
-    // HELPERS
-    // =========================================================
-
     private CreateOrderRequest deliveryAddress() {
-
         return new CreateOrderRequest(
                 "Kim Minjun",
                 "010-1234-5678",
@@ -167,7 +134,6 @@ class AdminOrderServiceIntegrationTest {
     }
 
     private OrderResponse placeOrder() {
-
         cartService.addItem(
                 customer.getEmail(),
                 new AddCartItemRequest(
@@ -182,49 +148,57 @@ class AdminOrderServiceIntegrationTest {
         );
     }
 
-    private OrderResponse placeAndPayOrder() {
+    private DemoPaymentController.DemoPaymentResponse simulate(
+            Long orderId,
+            DemoPaymentController.DemoOutcome outcome
+    ) {
+        TestingAuthenticationToken authentication =
+                new TestingAuthenticationToken(
+                        customer.getEmail(),
+                        null,
+                        "ROLE_CUSTOMER"
+                );
 
-        OrderResponse order = placeOrder();
+        authentication.setAuthenticated(true);
 
-        paymentService.simulate(
-                customer.getEmail(),
-                order.id(),
-                PaymentOutcome.SUCCESS
+        return demoPaymentController.simulate(
+                authentication,
+                orderId,
+                new DemoPaymentController.DemoPaymentRequest(
+                        outcome
+                )
         );
+    }
 
-        return order;
+    private Payment getPayment(Long orderId) {
+        return paymentRepository
+                .findByOrderId(orderId)
+                .orElseThrow();
     }
 
     private void assertOrderStatus(
             Long orderId,
             OrderStatus expectedStatus
     ) {
-
-        OrderStatus actualStatus = orderRepository
-                .findById(orderId)
-                .orElseThrow()
-                .getStatus();
-
-        assertEquals(expectedStatus, actualStatus);
+        assertEquals(
+                expectedStatus,
+                orderRepository.findById(orderId)
+                        .orElseThrow()
+                        .getStatus()
+        );
     }
 
     private void assertProductStock(int expectedStock) {
-
-        int actualStock = productRepository
-                .findById(product.getId())
-                .orElseThrow()
-                .getStock();
-
-        assertEquals(expectedStock, actualStock);
+        assertEquals(
+                expectedStock,
+                productRepository.findById(product.getId())
+                        .orElseThrow()
+                        .getStock()
+        );
     }
-
-    // =========================================================
-    // TEST 1: ADMIN ORDER LIST
-    // =========================================================
 
     @Test
     void adminCanListOrders() {
-
         OrderResponse order = placeOrder();
 
         Page<AdminOrderResponse> page =
@@ -244,13 +218,8 @@ class AdminOrderServiceIntegrationTest {
         assertEquals("PLACED", result.status());
     }
 
-    // =========================================================
-    // TEST 2: FILTER BY STATUS
-    // =========================================================
-
     @Test
     void adminCanFilterOrdersByStatus() {
-
         placeOrder();
 
         Page<AdminOrderResponse> placed =
@@ -269,13 +238,8 @@ class AdminOrderServiceIntegrationTest {
         assertEquals(0, shipped.getTotalElements());
     }
 
-    // =========================================================
-    // TEST 3: ADMIN ORDER DETAILS
-    // =========================================================
-
     @Test
     void adminCanViewOrderDetails() {
-
         OrderResponse order = placeOrder();
 
         AdminOrderResponse response =
@@ -293,13 +257,8 @@ class AdminOrderServiceIntegrationTest {
         assertEquals("06236", response.postalCode());
     }
 
-    // =========================================================
-    // TEST 4: UNPAID ORDER
-    // =========================================================
-
     @Test
     void unpaidOrderCannotBeProcessed() {
-
         OrderResponse order = placeOrder();
 
         assertThrows(
@@ -318,26 +277,30 @@ class AdminOrderServiceIntegrationTest {
         assertProductStock(8);
     }
 
-    // =========================================================
-    // TEST 5: FULL FULFILLMENT
-    // =========================================================
-
     @Test
-    void paidOrderCanProgressThroughFulfillment() {
+    void successfulDemoDoesNotAuthorizeProcessing() {
+        OrderResponse order = placeOrder();
 
-        // -----------------------------------------------------
-        // 1. CUSTOMER PLACES AND PAYS FOR ORDER
-        // -----------------------------------------------------
+        var demo = simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.SUCCESS
+        );
 
-        OrderResponse order = placeAndPayOrder();
-
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
+        assertEquals("PAID", demo.status());
+        assertTrue(demo.demo());
+        assertFalse(demo.persisted());
 
         assertEquals(
-                PaymentStatus.PAID,
-                payment.getStatus()
+                PaymentStatus.PENDING,
+                getPayment(order.id()).getStatus()
+        );
+
+        assertThrows(
+                OrderStatusConflictException.class,
+                () -> adminOrderService.updateStatus(
+                        order.id(),
+                        OrderStatus.PROCESSING
+                )
         );
 
         assertOrderStatus(
@@ -346,122 +309,59 @@ class AdminOrderServiceIntegrationTest {
         );
 
         assertProductStock(8);
+        assertEquals(0, shipmentRepository.count());
+    }
 
-        // -----------------------------------------------------
-        // 2. ADMIN STARTS PROCESSING
-        // -----------------------------------------------------
+    @Test
+    void failedDemoDoesNotAuthorizeProcessing() {
+        OrderResponse order = placeOrder();
 
-        AdminOrderResponse processing =
-                adminOrderService.updateStatus(
+        var demo = simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.FAILURE
+        );
+
+        assertEquals("FAILED", demo.status());
+
+        assertThrows(
+                OrderStatusConflictException.class,
+                () -> adminOrderService.updateStatus(
                         order.id(),
                         OrderStatus.PROCESSING
-                );
-
-        assertEquals(
-                "PROCESSING",
-                processing.status()
-        );
-
-        assertOrderStatus(
-                order.id(),
-                OrderStatus.PROCESSING
-        );
-
-        // -----------------------------------------------------
-        // 3. ADMIN CREATES SHIPMENT
-        // -----------------------------------------------------
-
-        shipmentService.shipOrder(
-                order.id(),
-                new CreateShipmentRequest(
-                        "CJ Logistics",
-                        "AGORA-TRACK-001"
                 )
         );
 
-        assertOrderStatus(
-                order.id(),
-                OrderStatus.SHIPPED
-        );
-
-        Shipment shipment = shipmentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
-
         assertEquals(
-                ShipmentStatus.SHIPPED,
-                shipment.getStatus()
-        );
-
-        assertEquals(
-                "CJ Logistics",
-                shipment.getCarrier()
-        );
-
-        assertEquals(
-                "AGORA-TRACK-001",
-                shipment.getTrackingNumber()
-        );
-
-        assertNotNull(shipment.getShippedAt());
-
-        // -----------------------------------------------------
-        // 4. CUSTOMER CONFIRMS DELIVERY
-        // -----------------------------------------------------
-
-        shipmentService.confirmCustomerDelivery(
-                customer.getEmail(),
-                order.id()
-        );
-
-        assertOrderStatus(
-                order.id(),
-                OrderStatus.DELIVERED
-        );
-
-        Shipment deliveredShipment = shipmentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
-
-        assertEquals(
-                ShipmentStatus.DELIVERED,
-                deliveredShipment.getStatus()
-        );
-
-        assertNotNull(
-                deliveredShipment.getDeliveredAt()
-        );
-
-        // -----------------------------------------------------
-        // 5. INVENTORY MUST NOT BE DEDUCTED AGAIN
-        // -----------------------------------------------------
-
-        assertProductStock(8);
-
-        // -----------------------------------------------------
-        // 6. PAYMENT MUST REMAIN PAID
-        // -----------------------------------------------------
-
-        Payment completedPayment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
-
-        assertEquals(
-                PaymentStatus.PAID,
-                completedPayment.getStatus()
+                PaymentStatus.PENDING,
+                getPayment(order.id()).getStatus()
         );
     }
 
-    // =========================================================
-    // TEST 6: INVALID STATUS TRANSITION
-    // =========================================================
+    @Test
+    void demoDoesNotCreateRealPaymentAttempts() {
+        OrderResponse order = placeOrder();
+
+        simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.SUCCESS
+        );
+
+        simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.FAILURE
+        );
+
+        assertEquals(0, paymentAttemptRepository.count());
+
+        Payment payment = getPayment(order.id());
+
+        assertEquals(PaymentStatus.PENDING, payment.getStatus());
+        assertNull(payment.getTransactionReference());
+    }
 
     @Test
     void adminCannotSkipFulfillmentStages() {
-
-        OrderResponse order = placeAndPayOrder();
-
-        // Admin cannot ship directly through updateStatus.
+        OrderResponse order = placeOrder();
 
         assertThrows(
                 OrderStatusConflictException.class,
@@ -470,8 +370,6 @@ class AdminOrderServiceIntegrationTest {
                         OrderStatus.SHIPPED
                 )
         );
-
-        // Admin cannot mark an order delivered directly.
 
         assertThrows(
                 OrderStatusConflictException.class,
@@ -489,13 +387,8 @@ class AdminOrderServiceIntegrationTest {
         assertProductStock(8);
     }
 
-    // =========================================================
-    // TEST 7: ADMIN CANCELS UNPAID ORDER
-    // =========================================================
-
     @Test
     void adminCanCancelUnpaidOrder() {
-
         OrderResponse order = placeOrder();
 
         assertProductStock(8);
@@ -506,92 +399,28 @@ class AdminOrderServiceIntegrationTest {
                         OrderStatus.CANCELLED
                 );
 
-        assertEquals(
-                "CANCELLED",
-                cancelled.status()
-        );
+        assertEquals("CANCELLED", cancelled.status());
 
         assertOrderStatus(
                 order.id(),
                 OrderStatus.CANCELLED
         );
 
-        // Inventory must be restored.
-
         assertProductStock(10);
-
-        // No successful payment occurred.
-
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
 
         assertEquals(
                 PaymentStatus.PENDING,
-                payment.getStatus()
+                getPayment(order.id()).getStatus()
         );
     }
 
-    // =========================================================
-    // TEST 8: ADMIN CANCELS PAID ORDER
-    // =========================================================
-
     @Test
-    void adminCanCancelPaidOrder() {
+    void adminCanCancelOrderAfterSuccessfulDemo() {
+        OrderResponse order = placeOrder();
 
-        OrderResponse order = placeAndPayOrder();
-
-        assertProductStock(8);
-
-        AdminOrderResponse cancelled =
-                adminOrderService.updateStatus(
-                        order.id(),
-                        OrderStatus.CANCELLED
-                );
-
-        assertEquals(
-                "CANCELLED",
-                cancelled.status()
-        );
-
-        assertOrderStatus(
+        simulate(
                 order.id(),
-                OrderStatus.CANCELLED
-        );
-
-        // Restore reserved inventory.
-
-        assertProductStock(10);
-
-        // Simulated payment must be refunded.
-
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
-
-        assertEquals(
-                PaymentStatus.REFUNDED,
-                payment.getStatus()
-        );
-    }
-
-    // =========================================================
-    // TEST 9: ADMIN CANCELS PROCESSING ORDER
-    // =========================================================
-
-    @Test
-    void adminCanCancelProcessingOrder() {
-
-        OrderResponse order = placeAndPayOrder();
-
-        adminOrderService.updateStatus(
-                order.id(),
-                OrderStatus.PROCESSING
-        );
-
-        assertOrderStatus(
-                order.id(),
-                OrderStatus.PROCESSING
+                DemoPaymentController.DemoOutcome.SUCCESS
         );
 
         AdminOrderResponse cancelled =
@@ -600,79 +429,21 @@ class AdminOrderServiceIntegrationTest {
                         OrderStatus.CANCELLED
                 );
 
-        assertEquals(
-                "CANCELLED",
-                cancelled.status()
-        );
-
-        assertOrderStatus(
-                order.id(),
-                OrderStatus.CANCELLED
-        );
+        assertEquals("CANCELLED", cancelled.status());
 
         assertProductStock(10);
 
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
-
         assertEquals(
-                PaymentStatus.REFUNDED,
-                payment.getStatus()
+                PaymentStatus.PENDING,
+                getPayment(order.id()).getStatus()
         );
+
+        assertEquals(0, paymentAttemptRepository.count());
     }
 
-    // =========================================================
-    // TEST 10: CANNOT CANCEL SHIPPED ORDER
-    // =========================================================
-
     @Test
-    void adminCannotCancelShippedOrder() {
-
-        OrderResponse order = placeAndPayOrder();
-
-        adminOrderService.updateStatus(
-                order.id(),
-                OrderStatus.PROCESSING
-        );
-
-        shipmentService.shipOrder(
-                order.id(),
-                new CreateShipmentRequest(
-                        "CJ Logistics",
-                        "AGORA-TRACK-002"
-                )
-        );
-
-        assertOrderStatus(
-                order.id(),
-                OrderStatus.SHIPPED
-        );
-
-        assertThrows(
-                OrderStatusConflictException.class,
-                () -> adminOrderService.updateStatus(
-                        order.id(),
-                        OrderStatus.CANCELLED
-                )
-        );
-
-        assertOrderStatus(
-                order.id(),
-                OrderStatus.SHIPPED
-        );
-
-        assertProductStock(8);
-    }
-
-    // =========================================================
-    // TEST 11: CANNOT PROCESS CANCELLED ORDER
-    // =========================================================
-
-    @Test
-    void cancelledOrderCannotBeProcessed() {
-
-        OrderResponse order = placeAndPayOrder();
+    void adminCannotProcessCancelledOrder() {
+        OrderResponse order = placeOrder();
 
         adminOrderService.updateStatus(
                 order.id(),
@@ -694,101 +465,12 @@ class AdminOrderServiceIntegrationTest {
 
         assertProductStock(10);
     }
-
-    // =========================================================
-    // TEST 12: CANNOT PROCESS SAME ORDER TWICE
-    // =========================================================
-
-    @Test
-    void adminCannotProcessOrderTwice() {
-
-        OrderResponse order = placeAndPayOrder();
-
-        adminOrderService.updateStatus(
-                order.id(),
-                OrderStatus.PROCESSING
-        );
-
-        assertThrows(
-                OrderStatusConflictException.class,
-                () -> adminOrderService.updateStatus(
-                        order.id(),
-                        OrderStatus.PROCESSING
-                )
-        );
-
-        assertOrderStatus(
-                order.id(),
-                OrderStatus.PROCESSING
-        );
-
-        assertProductStock(8);
-    }
-
-    // =========================================================
-    // TEST 13: FULFILLMENT PRESERVES ORDER TOTAL
-    // =========================================================
-
-    @Test
-    void fulfillmentPreservesOrderTotal() {
-
-        OrderResponse order = placeAndPayOrder();
-
-        BigDecimal originalTotal = order.totalAmount();
-
-        adminOrderService.updateStatus(
-                order.id(),
-                OrderStatus.PROCESSING
-        );
-
-        shipmentService.shipOrder(
-                order.id(),
-                new CreateShipmentRequest(
-                        "CJ Logistics",
-                        "AGORA-TRACK-003"
-                )
-        );
-
-        shipmentService.markDelivered(order.id());
-
-        AdminOrderResponse completedOrder =
-                adminOrderService.getOrder(order.id());
-
-        assertEquals(
-                0,
-                originalTotal.compareTo(
-                        completedOrder.totalAmount()
-                )
-        );
-
-        assertEquals(
-                "DELIVERED",
-                completedOrder.status()
-        );
-
-        assertProductStock(8);
-    }
-
-    // =========================================================
-    // TEST 14: DUPLICATE CANCELLATION MUST NOT RESTOCK TWICE
-    // =========================================================
 
     @Test
     void adminCannotCancelSameOrderTwice() {
-
-        OrderResponse order = placeAndPayOrder();
-
-        assertProductStock(8);
-
-        // First cancellation should succeed.
-        // Inventory should return to 10.
+        OrderResponse order = placeOrder();
 
         adminOrderService.updateStatus(
-                order.id(),
-                OrderStatus.CANCELLED
-        );
-
-        assertOrderStatus(
                 order.id(),
                 OrderStatus.CANCELLED
         );
@@ -803,8 +485,6 @@ class AdminOrderServiceIntegrationTest {
                 movementsAfterFirstCancellation
         );
 
-        // A second cancellation must be rejected.
-
         assertThrows(
                 OrderStatusConflictException.class,
                 () -> adminOrderService.updateStatus(
@@ -813,53 +493,34 @@ class AdminOrderServiceIntegrationTest {
                 )
         );
 
-        // The order must remain cancelled.
-
         assertOrderStatus(
                 order.id(),
                 OrderStatus.CANCELLED
         );
 
-        // Inventory must not increase beyond the
-        // original stock of 10.
-
         assertProductStock(10);
-
-        // No additional inventory movement should exist.
 
         assertEquals(
                 movementsAfterFirstCancellation,
                 inventoryMovementRepository.count()
         );
 
-        // The simulated payment must remain refunded.
-
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
-
         assertEquals(
-                PaymentStatus.REFUNDED,
-                payment.getStatus()
-        );
-
-        // The original order must still exist.
-
-        assertEquals(
-                1,
-                orderRepository.count()
+                PaymentStatus.PENDING,
+                getPayment(order.id()).getStatus()
         );
     }
+
     @Test
     void adminCannotCancelTossPreparedOrder() {
-
         OrderResponse order = placeOrder();
 
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
+        Payment payment = getPayment(order.id());
 
-        payment.setTossOrderId("TOSS-TEST-" + order.id());
+        payment.setTossOrderId(
+                "TOSS-TEST-" + order.id()
+        );
+
         paymentRepository.saveAndFlush(payment);
 
         assertThrows(
@@ -870,18 +531,21 @@ class AdminOrderServiceIntegrationTest {
                 )
         );
 
-        assertOrderStatus(order.id(), OrderStatus.PLACED);
-        assertProductStock(8);
+        assertOrderStatus(
+                order.id(),
+                OrderStatus.PLACED
+        );
 
-        Payment unchangedPayment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
+        assertProductStock(8);
 
         assertEquals(
                 PaymentStatus.PENDING,
-                unchangedPayment.getStatus()
+                getPayment(order.id()).getStatus()
         );
 
-        assertEquals(1, inventoryMovementRepository.count());
+        assertEquals(
+                1,
+                inventoryMovementRepository.count()
+        );
     }
 }

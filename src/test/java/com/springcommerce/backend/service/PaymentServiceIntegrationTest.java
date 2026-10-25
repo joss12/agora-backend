@@ -1,14 +1,12 @@
-
 package com.springcommerce.backend.service;
 
+import com.springcommerce.backend.controller.DemoPaymentController;
 import com.springcommerce.backend.dto.AddCartItemRequest;
 import com.springcommerce.backend.dto.CreateOrderRequest;
 import com.springcommerce.backend.dto.OrderResponse;
 import com.springcommerce.backend.dto.PaymentResponse;
-
 import com.springcommerce.backend.entity.*;
 import com.springcommerce.backend.exception.OrderNotFoundException;
-import com.springcommerce.backend.exception.PaymentConflictException;
 import com.springcommerce.backend.repository.*;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
 
 import org.testcontainers.junit.jupiter.Container;
@@ -42,6 +41,9 @@ class PaymentServiceIntegrationTest {
 
     @Autowired
     private PaymentService paymentService;
+
+    @Autowired
+    private DemoPaymentController demoPaymentController;
 
     @Autowired
     private CartService cartService;
@@ -78,7 +80,6 @@ class PaymentServiceIntegrationTest {
 
     @BeforeEach
     void setUp() {
-
         paymentAttemptRepository.deleteAll();
         paymentRepository.deleteAll();
 
@@ -113,7 +114,6 @@ class PaymentServiceIntegrationTest {
     }
 
     private CreateOrderRequest deliveryAddress() {
-
         return new CreateOrderRequest(
                 "Kim Minjun",
                 "010-1234-5678",
@@ -125,7 +125,6 @@ class PaymentServiceIntegrationTest {
     }
 
     private OrderResponse placeOrder() {
-
         cartService.addItem(
                 customer.getEmail(),
                 new AddCartItemRequest(
@@ -140,48 +139,72 @@ class PaymentServiceIntegrationTest {
         );
     }
 
-    // =========================================================
-    // TEST 1: SUCCESSFUL PAYMENT
-    // =========================================================
+    private TestingAuthenticationToken authentication(
+            String email
+    ) {
+        TestingAuthenticationToken authentication =
+                new TestingAuthenticationToken(
+                        email,
+                        null,
+                        "ROLE_CUSTOMER"
+                );
 
-    @Test
-    void successfulPaymentMarksPaymentAsPaid() {
+        authentication.setAuthenticated(true);
 
-        OrderResponse order = placeOrder();
+        return authentication;
+    }
 
-        PaymentResponse response = paymentService.simulate(
-                customer.getEmail(),
-                order.id(),
-                PaymentOutcome.SUCCESS
+    private DemoPaymentController.DemoPaymentResponse simulate(
+            Long orderId,
+            DemoPaymentController.DemoOutcome outcome
+    ) {
+        return demoPaymentController.simulate(
+                authentication(customer.getEmail()),
+                orderId,
+                new DemoPaymentController.DemoPaymentRequest(outcome)
         );
+    }
 
-        assertEquals("PAID", response.status());
-
-        assertNotNull(response.transactionReference());
-
-        assertEquals(1, response.attempts().size());
-
-        assertEquals(
-                1,
-                paymentAttemptRepository.count()
-        );
-
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
+    private Payment getStoredPayment(Long orderId) {
+        return paymentRepository
+                .findByOrderId(orderId)
                 .orElseThrow();
+    }
+
+    private void assertRealPaymentUnchanged(Long orderId) {
+        Payment payment = getStoredPayment(orderId);
 
         assertEquals(
-                PaymentStatus.PAID,
+                PaymentStatus.PENDING,
                 payment.getStatus()
         );
+
+        assertNull(payment.getTransactionReference());
+        assertNull(payment.getTossOrderId());
+
+        assertEquals(0, paymentAttemptRepository.count());
+    }
+
+    @Test
+    void checkoutCreatesPendingPayment() {
+        OrderResponse order = placeOrder();
+
+        PaymentResponse response = paymentService.getPayment(
+                customer.getEmail(),
+                order.id()
+        );
+
+        assertEquals("PENDING", response.status());
 
         assertEquals(
                 0,
                 new BigDecimal("20000.00")
-                        .compareTo(payment.getAmount())
+                        .compareTo(response.amount())
         );
 
-        // Paying does not advance fulfillment automatically.
+        assertTrue(response.attempts().isEmpty());
+        assertNull(response.transactionReference());
+
         assertEquals(
                 OrderStatus.PLACED,
                 orderRepository.findById(order.id())
@@ -190,144 +213,134 @@ class PaymentServiceIntegrationTest {
         );
     }
 
-    // =========================================================
-    // TEST 2: FAILED PAYMENT
-    // =========================================================
-
     @Test
-    void failedPaymentRecordsAttemptAndAllowsRetry() {
-
+    void successfulDemoDoesNotMarkRealPaymentAsPaid() {
         OrderResponse order = placeOrder();
 
-        PaymentResponse response = paymentService.simulate(
-                customer.getEmail(),
+        var response = simulate(
                 order.id(),
-                PaymentOutcome.FAILURE
-        );
-
-        assertEquals("FAILED", response.status());
-
-        assertEquals(
-                1,
-                response.attempts().size()
-        );
-
-        assertEquals(
-                "FAILURE",
-                response.attempts().get(0).outcome()
-        );
-
-        assertEquals(
-                PaymentStatus.FAILED,
-                paymentRepository.findByOrderId(order.id())
-                        .orElseThrow()
-                        .getStatus()
-        );
-
-        // A declined payment must not restore stock.
-        assertEquals(
-                8,
-                productRepository.findById(product.getId())
-                        .orElseThrow()
-                        .getStock()
-        );
-    }
-
-    // =========================================================
-    // TEST 3: RETRY FAILED PAYMENT
-    // =========================================================
-
-    @Test
-    void failedPaymentCanBeRetriedSuccessfully() {
-
-        OrderResponse order = placeOrder();
-
-        paymentService.simulate(
-                customer.getEmail(),
-                order.id(),
-                PaymentOutcome.FAILURE
-        );
-
-        PaymentResponse response = paymentService.simulate(
-                customer.getEmail(),
-                order.id(),
-                PaymentOutcome.SUCCESS
+                DemoPaymentController.DemoOutcome.SUCCESS
         );
 
         assertEquals("PAID", response.status());
+        assertEquals("SUCCESS", response.outcome());
+        assertEquals("DEMO", response.provider());
+
+        assertTrue(response.demo());
+        assertFalse(response.persisted());
+        assertNotNull(response.transactionReference());
+
+        assertRealPaymentUnchanged(order.id());
 
         assertEquals(
-                2,
-                response.attempts().size()
+                OrderStatus.PLACED,
+                orderRepository.findById(order.id())
+                        .orElseThrow()
+                        .getStatus()
+        );
+    }
+
+    @Test
+    void failedDemoDoesNotModifyRealPayment() {
+        OrderResponse order = placeOrder();
+
+        var response = simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.FAILURE
         );
 
-        assertEquals(
-                "FAILURE",
-                response.attempts().get(0).outcome()
+        assertEquals("FAILED", response.status());
+        assertEquals("FAILURE", response.outcome());
+        assertFalse(response.persisted());
+
+        assertRealPaymentUnchanged(order.id());
+    }
+
+    @Test
+    void failedDemoCanBeFollowedBySuccessfulDemo() {
+        OrderResponse order = placeOrder();
+
+        var failed = simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.FAILURE
         );
 
-        assertEquals(
-                "SUCCESS",
-                response.attempts().get(1).outcome()
+        var successful = simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.SUCCESS
         );
 
-        assertEquals(
-                2,
-                paymentAttemptRepository.count()
+        assertEquals("FAILED", failed.status());
+        assertEquals("PAID", successful.status());
+
+        assertNotEquals(
+                failed.transactionReference(),
+                successful.transactionReference()
         );
 
-        // Retrying payment must not deduct stock again.
+        assertRealPaymentUnchanged(order.id());
+    }
+
+    @Test
+    void demoDoesNotDeductStockAgain() {
+        OrderResponse order = placeOrder();
+
         assertEquals(
                 8,
                 productRepository.findById(product.getId())
                         .orElseThrow()
                         .getStock()
         );
-    }
 
-    // =========================================================
-    // TEST 4: DUPLICATE SUCCESSFUL PAYMENT
-    // =========================================================
-
-    @Test
-    void paidOrderCannotBePaidAgain() {
-
-        OrderResponse order = placeOrder();
-
-        paymentService.simulate(
-                customer.getEmail(),
+        simulate(
                 order.id(),
-                PaymentOutcome.SUCCESS
+                DemoPaymentController.DemoOutcome.SUCCESS
         );
 
-        assertThrows(
-                PaymentConflictException.class,
-                () -> paymentService.simulate(
-                        customer.getEmail(),
-                        order.id(),
-                        PaymentOutcome.SUCCESS
-                )
+        simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.FAILURE
         );
 
         assertEquals(
-                1,
-                paymentAttemptRepository.count()
+                8,
+                productRepository.findById(product.getId())
+                        .orElseThrow()
+                        .getStock()
+        );
+
+        assertRealPaymentUnchanged(order.id());
+    }
+
+    @Test
+    void demoDoesNotAuthorizeFulfillment() {
+        OrderResponse order = placeOrder();
+
+        simulate(
+                order.id(),
+                DemoPaymentController.DemoOutcome.SUCCESS
+        );
+
+        assertEquals(
+                PaymentStatus.PENDING,
+                getStoredPayment(order.id()).getStatus()
+        );
+
+        assertEquals(
+                OrderStatus.PLACED,
+                orderRepository.findById(order.id())
+                        .orElseThrow()
+                        .getStatus()
         );
     }
 
-    // =========================================================
-    // TEST 5: REFUND ON CANCELLATION
-    // =========================================================
-
     @Test
-    void cancellingPaidOrderSimulatesRefund() {
-
+    void cancellingAfterDemoRestoresInventory() {
         OrderResponse order = placeOrder();
 
-        paymentService.simulate(
-                customer.getEmail(),
+        simulate(
                 order.id(),
-                PaymentOutcome.SUCCESS
+                DemoPaymentController.DemoOutcome.SUCCESS
         );
 
         OrderResponse cancelled = orderService.cancelOrder(
@@ -335,21 +348,8 @@ class PaymentServiceIntegrationTest {
                 order.id()
         );
 
-        assertEquals(
-                "CANCELLED",
-                cancelled.status()
-        );
+        assertEquals("CANCELLED", cancelled.status());
 
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
-
-        assertEquals(
-                PaymentStatus.REFUNDED,
-                payment.getStatus()
-        );
-
-        // Inventory must be restored.
         assertEquals(
                 10,
                 productRepository.findById(product.getId())
@@ -357,20 +357,16 @@ class PaymentServiceIntegrationTest {
                         .getStock()
         );
 
-        // The original payment attempt is retained.
         assertEquals(
-                1,
-                paymentAttemptRepository.count()
+                PaymentStatus.PENDING,
+                getStoredPayment(order.id()).getStatus()
         );
-    }
 
-    // =========================================================
-    // TEST 6: ORDER OWNERSHIP
-    // =========================================================
+        assertEquals(0, paymentAttemptRepository.count());
+    }
 
     @Test
     void anotherCustomerCannotAccessPayment() {
-
         OrderResponse order = placeOrder();
 
         User otherCustomer = new User();
@@ -393,66 +389,51 @@ class PaymentServiceIntegrationTest {
 
         assertThrows(
                 OrderNotFoundException.class,
-                () -> paymentService.simulate(
-                        otherCustomer.getEmail(),
+                () -> demoPaymentController.simulate(
+                        authentication(otherCustomer.getEmail()),
                         order.id(),
-                        PaymentOutcome.SUCCESS
+                        new DemoPaymentController.DemoPaymentRequest(
+                                DemoPaymentController.DemoOutcome.SUCCESS
+                        )
                 )
         );
 
-        assertEquals(
-                PaymentStatus.PENDING,
-                paymentRepository.findByOrderId(order.id())
-                        .orElseThrow()
-                        .getStatus()
-        );
-
-        assertEquals(
-                0,
-                paymentAttemptRepository.count()
-        );
+        assertRealPaymentUnchanged(order.id());
     }
-    @Test
-    void tossPreparedOrderCannotUseSimulatedPayment() {
 
+    @Test
+    void tossPreparedOrderCannotUseDemoPayment() {
         OrderResponse order = placeOrder();
 
-        Payment payment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
+        Payment payment = getStoredPayment(order.id());
 
         payment.setTossOrderId("TOSS-TEST-" + order.id());
         paymentRepository.saveAndFlush(payment);
 
         assertThrows(
-                PaymentConflictException.class,
-                () -> paymentService.simulate(
-                        customer.getEmail(),
+                org.springframework.web.server.ResponseStatusException.class,
+                () -> simulate(
                         order.id(),
-                        PaymentOutcome.SUCCESS
+                        DemoPaymentController.DemoOutcome.SUCCESS
                 )
         );
 
         assertThrows(
-                PaymentConflictException.class,
-                () -> paymentService.simulate(
-                        customer.getEmail(),
+                org.springframework.web.server.ResponseStatusException.class,
+                () -> simulate(
                         order.id(),
-                        PaymentOutcome.FAILURE
+                        DemoPaymentController.DemoOutcome.FAILURE
                 )
         );
 
-        Payment unchangedPayment = paymentRepository
-                .findByOrderId(order.id())
-                .orElseThrow();
+        Payment unchanged = getStoredPayment(order.id());
 
         assertEquals(
                 PaymentStatus.PENDING,
-                unchangedPayment.getStatus()
+                unchanged.getStatus()
         );
 
         assertEquals(0, paymentAttemptRepository.count());
-
-        assertNull(unchangedPayment.getTransactionReference());
+        assertNull(unchanged.getTransactionReference());
     }
 }

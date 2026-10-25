@@ -1,136 +1,427 @@
 package com.springcommerce.backend.service;
 
-import com.springcommerce.backend.entity.PaymentOutcome;
-
-import com.springcommerce.backend.repository.OrderRepository;
-import com.springcommerce.backend.repository.PaymentAttemptRepository;
-import com.springcommerce.backend.repository.PaymentRepository;
-import com.springcommerce.backend.repository.UserRepository;
+import com.springcommerce.backend.controller.DemoPaymentController;
+import com.springcommerce.backend.entity.*;
+import com.springcommerce.backend.exception.OrderNotFoundException;
+import com.springcommerce.backend.repository.*;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
-import org.springframework.mock.env.MockEnvironment;
+import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.math.BigDecimal;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class PaymentSimulationSecurityTest {
 
-    private PaymentService paymentService;
-
     private UserRepository userRepository;
     private OrderRepository orderRepository;
     private PaymentRepository paymentRepository;
-    private PaymentAttemptRepository attemptRepository;
+
+    private DemoPaymentController controller;
+
+    private User customer;
+    private Order order;
+    private Payment payment;
 
     @BeforeEach
     void setUp() {
+
         userRepository = mock(UserRepository.class);
         orderRepository = mock(OrderRepository.class);
         paymentRepository = mock(PaymentRepository.class);
-        attemptRepository = mock(PaymentAttemptRepository.class);
-    }
 
-    private PaymentService createService(Environment environment) {
-        return new PaymentService(
+        controller = new DemoPaymentController(
                 userRepository,
                 orderRepository,
-                paymentRepository,
-                attemptRepository,
-                environment
+                paymentRepository
+        );
+
+        // =====================================================
+        // CUSTOMER
+        // =====================================================
+
+        customer = mock(User.class);
+
+        when(customer.getId())
+                .thenReturn(1L);
+
+        when(customer.getEmail())
+                .thenReturn("test@example.com");
+
+        // =====================================================
+        // ORDER
+        // =====================================================
+
+        order = mock(Order.class);
+
+        when(order.getId())
+                .thenReturn(10L);
+
+        when(order.getUser())
+                .thenReturn(customer);
+
+        when(order.getStatus())
+                .thenReturn(OrderStatus.PLACED);
+
+        // =====================================================
+        // PAYMENT
+        // =====================================================
+
+        payment = new Payment();
+
+        payment.setOrder(order);
+        payment.setAmount(new BigDecimal("20000.00"));
+        payment.setStatus(PaymentStatus.PENDING);
+
+        // =====================================================
+        // REPOSITORY MOCKS
+        // =====================================================
+
+        when(userRepository.findByEmail(customer.getEmail()))
+                .thenReturn(Optional.of(customer));
+
+        when(orderRepository.findByIdAndUserId(10L, 1L))
+                .thenReturn(Optional.of(order));
+
+        when(paymentRepository.findByOrderId(10L))
+                .thenReturn(Optional.of(payment));
+    }
+
+    // =========================================================
+    // HELPERS
+    // =========================================================
+
+    private TestingAuthenticationToken authentication() {
+
+        TestingAuthenticationToken authentication =
+                new TestingAuthenticationToken(
+                        customer.getEmail(),
+                        null,
+                        "ROLE_CUSTOMER"
+                );
+
+        authentication.setAuthenticated(true);
+
+        return authentication;
+    }
+
+    private DemoPaymentController.DemoPaymentRequest request(
+            DemoPaymentController.DemoOutcome outcome
+    ) {
+
+        return new DemoPaymentController.DemoPaymentRequest(
+                outcome
         );
     }
 
-    private void assertSimulationBlocked(String... profiles) {
-        MockEnvironment environment = new MockEnvironment();
-        environment.setActiveProfiles(profiles);
+    // =========================================================
+    // TEST 1: UNAUTHENTICATED REQUEST
+    // =========================================================
 
-        paymentService = createService(environment);
+    @Test
+    void unauthenticatedRequestIsRejected() {
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> paymentService.simulate(
-                        "test@example.com",
-                        1L,
-                        PaymentOutcome.SUCCESS
+                () -> controller.simulate(
+                        null,
+                        10L,
+                        request(
+                                DemoPaymentController.DemoOutcome.SUCCESS
+                        )
                 )
         );
 
         assertEquals(
-                HttpStatus.FORBIDDEN,
+                HttpStatus.UNAUTHORIZED,
                 exception.getStatusCode()
         );
 
-        // Rejected before accessing the database.
         verifyNoInteractions(
                 userRepository,
                 orderRepository,
-                paymentRepository,
-                attemptRepository
+                paymentRepository
         );
     }
 
-    @Test
-    void productionProfileBlocksSimulation() {
-        assertSimulationBlocked("prod");
-    }
+    // =========================================================
+    // TEST 2: ORDER OWNERSHIP
+    // =========================================================
 
     @Test
-    void defaultProfileBlocksSimulation() {
-        assertSimulationBlocked();
-    }
+    void anotherCustomerCannotSimulatePayment() {
 
-    @Test
-    void productionOverridesDevelopmentProfile() {
-        assertSimulationBlocked("dev", "prod");
-    }
+        when(orderRepository.findByIdAndUserId(10L, 1L))
+                .thenReturn(Optional.empty());
 
-    @Test
-    void productionOverridesTestProfile() {
-        assertSimulationBlocked("test", "prod");
-    }
-
-    @Test
-    void developmentProfileAllowsSimulationToReachBusinessLogic() {
-        MockEnvironment environment = new MockEnvironment();
-        environment.setActiveProfiles("dev");
-
-        paymentService = createService(environment);
-
-        // No user is configured in the mocked repository.
-        // Reaching the repository proves the profile guard allowed execution.
         assertThrows(
-                org.springframework.security.core.userdetails.UsernameNotFoundException.class,
-                () -> paymentService.simulate(
-                        "test@example.com",
-                        1L,
-                        PaymentOutcome.SUCCESS
+                OrderNotFoundException.class,
+                () -> controller.simulate(
+                        authentication(),
+                        10L,
+                        request(
+                                DemoPaymentController.DemoOutcome.SUCCESS
+                        )
                 )
         );
 
-        verify(userRepository).findByEmail("test@example.com");
+        verify(paymentRepository, never())
+                .findByOrderId(anyLong());
     }
 
+    // =========================================================
+    // TEST 3: SUCCESSFUL DEMO PAYMENT
+    // =========================================================
+
     @Test
-    void testProfileAllowsSimulationToReachBusinessLogic() {
-        MockEnvironment environment = new MockEnvironment();
-        environment.setActiveProfiles("test");
+    void successfulDemoDoesNotMarkPaymentAsPaid() {
 
-        paymentService = createService(environment);
-
-        assertThrows(
-                org.springframework.security.core.userdetails.UsernameNotFoundException.class,
-                () -> paymentService.simulate(
-                        "test@example.com",
-                        1L,
-                        PaymentOutcome.SUCCESS
+        var response = controller.simulate(
+                authentication(),
+                10L,
+                request(
+                        DemoPaymentController.DemoOutcome.SUCCESS
                 )
         );
 
-        verify(userRepository).findByEmail("test@example.com");
+        assertEquals(
+                "PAID",
+                response.status()
+        );
+
+        assertEquals(
+                "SUCCESS",
+                response.outcome()
+        );
+
+        assertEquals(
+                "DEMO",
+                response.provider()
+        );
+
+        assertTrue(response.demo());
+
+        assertFalse(response.persisted());
+
+        assertNotNull(
+                response.transactionReference()
+        );
+
+        // Real payment must remain pending.
+
+        assertEquals(
+                PaymentStatus.PENDING,
+                payment.getStatus()
+        );
+
+        assertNull(
+                payment.getTransactionReference()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
+    }
+
+    // =========================================================
+    // TEST 4: FAILED DEMO PAYMENT
+    // =========================================================
+
+    @Test
+    void failedDemoDoesNotModifyPayment() {
+
+        var response = controller.simulate(
+                authentication(),
+                10L,
+                request(
+                        DemoPaymentController.DemoOutcome.FAILURE
+                )
+        );
+
+        assertEquals(
+                "FAILED",
+                response.status()
+        );
+
+        assertEquals(
+                "FAILURE",
+                response.outcome()
+        );
+
+        assertTrue(response.demo());
+
+        assertFalse(response.persisted());
+
+        assertEquals(
+                PaymentStatus.PENDING,
+                payment.getStatus()
+        );
+
+        assertNull(
+                payment.getTransactionReference()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
+    }
+
+    // =========================================================
+    // TEST 5: PAID ORDER
+    // =========================================================
+
+    @Test
+    void paidOrderCannotUseDemoPayment() {
+
+        payment.setStatus(
+                PaymentStatus.PAID
+        );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.simulate(
+                        authentication(),
+                        10L,
+                        request(
+                                DemoPaymentController.DemoOutcome.SUCCESS
+                        )
+                )
+        );
+
+        assertEquals(
+                HttpStatus.CONFLICT,
+                exception.getStatusCode()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
+    }
+
+    // =========================================================
+    // TEST 6: REFUNDED ORDER
+    // =========================================================
+
+    @Test
+    void refundedOrderCannotUseDemoPayment() {
+
+        payment.setStatus(
+                PaymentStatus.REFUNDED
+        );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.simulate(
+                        authentication(),
+                        10L,
+                        request(
+                                DemoPaymentController.DemoOutcome.SUCCESS
+                        )
+                )
+        );
+
+        assertEquals(
+                HttpStatus.CONFLICT,
+                exception.getStatusCode()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
+    }
+
+    // =========================================================
+    // TEST 7: TOSS PREPARED ORDER
+    // =========================================================
+
+    @Test
+    void tossPreparedOrderCannotUseDemoPayment() {
+
+        payment.setTossOrderId(
+                "TOSS-TEST-123"
+        );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.simulate(
+                        authentication(),
+                        10L,
+                        request(
+                                DemoPaymentController.DemoOutcome.SUCCESS
+                        )
+                )
+        );
+
+        assertEquals(
+                HttpStatus.CONFLICT,
+                exception.getStatusCode()
+        );
+
+        assertEquals(
+                PaymentStatus.PENDING,
+                payment.getStatus()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
+    }
+
+    // =========================================================
+    // TEST 8: REPEATED DEMO PAYMENTS
+    // =========================================================
+
+    @Test
+    void repeatedDemoPaymentsDoNotPersistChanges() {
+
+        var failed = controller.simulate(
+                authentication(),
+                10L,
+                request(
+                        DemoPaymentController.DemoOutcome.FAILURE
+                )
+        );
+
+        var successful = controller.simulate(
+                authentication(),
+                10L,
+                request(
+                        DemoPaymentController.DemoOutcome.SUCCESS
+                )
+        );
+
+        assertEquals(
+                "FAILED",
+                failed.status()
+        );
+
+        assertEquals(
+                "PAID",
+                successful.status()
+        );
+
+        assertNotEquals(
+                failed.transactionReference(),
+                successful.transactionReference()
+        );
+
+        assertFalse(failed.persisted());
+        assertFalse(successful.persisted());
+
+        // Real payment remains unchanged.
+
+        assertEquals(
+                PaymentStatus.PENDING,
+                payment.getStatus()
+        );
+
+        assertNull(
+                payment.getTransactionReference()
+        );
+
+        verify(paymentRepository, never())
+                .save(any(Payment.class));
     }
 }

@@ -3,6 +3,8 @@ package com.springcommerce.backend.controller;
 import com.springcommerce.backend.entity.Order;
 import com.springcommerce.backend.entity.OrderStatus;
 import com.springcommerce.backend.entity.Payment;
+import com.springcommerce.backend.entity.PaymentAttempt;
+import com.springcommerce.backend.entity.PaymentOutcome;
 import com.springcommerce.backend.entity.PaymentStatus;
 import com.springcommerce.backend.entity.User;
 
@@ -10,12 +12,14 @@ import com.springcommerce.backend.exception.OrderNotFoundException;
 import com.springcommerce.backend.exception.PaymentNotFoundException;
 
 import com.springcommerce.backend.repository.OrderRepository;
+import com.springcommerce.backend.repository.PaymentAttemptRepository;
 import com.springcommerce.backend.repository.PaymentRepository;
 import com.springcommerce.backend.repository.UserRepository;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -34,15 +38,22 @@ public class DemoPaymentController {
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
+    private final PaymentAttemptRepository attemptRepository;
+    private final boolean demoEnabled;
 
     public DemoPaymentController(
             UserRepository userRepository,
             OrderRepository orderRepository,
-            PaymentRepository paymentRepository
+            PaymentRepository paymentRepository,
+            PaymentAttemptRepository attemptRepository,
+            @Value("${app.payment.demo-enabled:false}")
+            boolean demoEnabled
     ) {
         this.userRepository = userRepository;
         this.orderRepository = orderRepository;
         this.paymentRepository = paymentRepository;
+        this.attemptRepository = attemptRepository;
+        this.demoEnabled = demoEnabled;
     }
 
     public enum DemoOutcome {
@@ -70,15 +81,21 @@ public class DemoPaymentController {
     }
 
     @PostMapping
-    @Transactional(readOnly = true)
+    @Transactional
     public DemoPaymentResponse simulate(
             Authentication authentication,
             @PathVariable Long orderId,
             @Valid @RequestBody DemoPaymentRequest request
     ) {
+        if (!demoEnabled) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Demo payments are disabled on this server."
+            );
+        }
+
         if (authentication == null
                 || !authentication.isAuthenticated()) {
-
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Authentication is required."
@@ -100,8 +117,10 @@ public class DemoPaymentController {
                         )
                 );
 
+        // Lock the order so two simultaneous requests
+        // cannot successfully pay the same order twice.
         Order order = orderRepository
-                .findByIdAndUserId(
+                .findByIdAndUserIdForUpdate(
                         orderId,
                         user.getId()
                 )
@@ -118,7 +137,7 @@ public class DemoPaymentController {
         if (order.getStatus() != OrderStatus.PLACED) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "This order is no longer awaiting payment."
+                    "Only placed orders can be paid."
             );
         }
 
@@ -139,7 +158,15 @@ public class DemoPaymentController {
         if (payment.getTossOrderId() != null) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "This order uses Toss Payments."
+                    "This order is associated with Toss Payments."
+            );
+        }
+
+        if (payment.getStatus() != PaymentStatus.PENDING
+                && payment.getStatus() != PaymentStatus.FAILED) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Payment cannot be simulated in its current state."
             );
         }
 
@@ -149,21 +176,47 @@ public class DemoPaymentController {
         String reference =
                 "DEMO-" + UUID.randomUUID();
 
+        PaymentAttempt attempt = new PaymentAttempt();
+
+        attempt.setPayment(payment);
+        attempt.setOutcome(
+                success
+                        ? PaymentOutcome.SUCCESS
+                        : PaymentOutcome.FAILURE
+        );
+        attempt.setProvider("DEMO");
+        attempt.setProviderStatus(
+                success ? "SIMULATED_SUCCESS" : "SIMULATED_FAILURE"
+        );
+        attempt.setTransactionReference(reference);
+
+        attemptRepository.save(attempt);
+
+        payment.setStatus(
+                success
+                        ? PaymentStatus.PAID
+                        : PaymentStatus.FAILED
+        );
+
+        if (success) {
+            payment.setTransactionReference(reference);
+        }
+
+        paymentRepository.saveAndFlush(payment);
+
         return new DemoPaymentResponse(
                 order.getId(),
                 payment.getAmount(),
-                success
-                        ? "SIMULATED_SUCCESS"
-                        : "SIMULATED_FAILURE",
+                payment.getStatus().name(),
                 request.outcome().name(),
                 reference,
                 "DEMO",
                 true,
-                false,
+                true,
                 LocalDateTime.now(),
                 success
-                        ? "Simulation completed. No payment was collected."
-                        : "Simulation failed. No payment was collected."
+                        ? "Demo payment recorded successfully. No real money was charged."
+                        : "Demo payment failed. You can retry."
         );
     }
 }
